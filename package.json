@@ -1,0 +1,10 @@
+{
+  "name": "tokenparty",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter proxy dev",
+    "dev:dashboard": "pnpm --filter dashboard dev",
+    "build": "pnpm -r build"
+  }
+}

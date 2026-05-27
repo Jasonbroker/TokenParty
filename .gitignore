@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Runtime data
+packages/proxy/config.yaml
+packages/proxy/logs/
+packages/proxy/data/
+
+# Environment
+.env
+.env.*
