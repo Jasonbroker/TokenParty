@@ -32,16 +32,20 @@ export async function forwardRequest(
 
   const targetUrl = `${provider.baseUrl}${targetPath}`;
 
-  const upstreamHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const upstreamHeaders: Record<string, string> = {};
+  const skipHeaders = new Set(["host", "connection", "content-length"]);
+  c.req.raw.headers.forEach((value, key) => {
+    if (!skipHeaders.has(key.toLowerCase())) {
+      upstreamHeaders[key] = value;
+    }
+  });
 
   if (provider.type === "openai") {
-    upstreamHeaders["Authorization"] = `Bearer ${provider.apiKey}`;
-    if (isStreaming) upstreamHeaders["Accept"] = "text/event-stream";
+    upstreamHeaders["authorization"] = `Bearer ${provider.apiKey}`;
   } else if (provider.type === "anthropic") {
+    delete upstreamHeaders["authorization"];
     upstreamHeaders["x-api-key"] = provider.apiKey;
-    upstreamHeaders["anthropic-version"] = "2023-06-01";
+    upstreamHeaders["anthropic-version"] ??= "2023-06-01";
   }
 
   // Capture incoming request headers (sanitize auth)
@@ -133,8 +137,8 @@ export async function forwardRequest(
                     usage = { input_tokens: parsed.usage.prompt_tokens ?? 0, output_tokens: parsed.usage.completion_tokens ?? 0 };
                   }
                 } else {
-                  // Same protocol, pass through — extract content for log
-                  if (parsed.type?.startsWith("response.")) {
+                  // Same protocol, pass through — preserve event type
+                  if (parsed.type) {
                     await s.writeSSE({ event: parsed.type, data });
                   } else {
                     await s.writeSSE({ data });

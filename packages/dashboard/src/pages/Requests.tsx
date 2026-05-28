@@ -128,7 +128,15 @@ export default function Requests() {
                 </Section>
                 {reqLog.body?.system && (
                   <Section title="System Prompt" defaultOpen>
-                    <div className="bg-amber-50 border border-amber-200 rounded p-3 whitespace-pre-wrap">{reqLog.body.system}</div>
+                    <div className="bg-amber-50 border border-amber-200 rounded p-3 whitespace-pre-wrap">
+                      {typeof reqLog.body.system === "string"
+                        ? reqLog.body.system
+                        : Array.isArray(reqLog.body.system)
+                          ? reqLog.body.system.map((block: any, i: number) => (
+                              <div key={i}>{block.text ?? JSON.stringify(block)}</div>
+                            ))
+                          : JSON.stringify(reqLog.body.system)}
+                    </div>
                   </Section>
                 )}
                 {reqLog.body?.tools && (
@@ -237,20 +245,69 @@ function MessageList({ messages }: { messages?: any[] }) {
     <div className="space-y-2">
       {messages.map((msg, i) => (
         <div key={i} className={`rounded border p-3 ${roleColors[msg.role] ?? "bg-gray-50 border-gray-200"}`}>
-          <div className="font-medium text-gray-600 mb-1 text-xs uppercase">{msg.role}</div>
-          <div className="whitespace-pre-wrap">
-            {typeof msg.content === "string"
-              ? msg.content
-              : Array.isArray(msg.content)
-                ? msg.content.map((part: any, j: number) => (
-                    <div key={j}>{part.text ?? JSON.stringify(part)}</div>
-                  ))
-                : JSON.stringify(msg.content)}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-medium text-gray-600 text-xs uppercase">{msg.role}</span>
+            <span className="text-gray-300 text-xs">#{i + 1}</span>
+          </div>
+          <div className="space-y-2">
+            {typeof msg.content === "string" ? (
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+            ) : Array.isArray(msg.content) ? (
+              msg.content.map((part: any, j: number) => (
+                <MessagePart key={j} part={part} />
+              ))
+            ) : (
+              <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(msg.content, null, 2)}</pre>
+            )}
           </div>
         </div>
       ))}
     </div>
   );
+}
+
+function MessagePart({ part }: { part: any }) {
+  if (part.type === "thinking") {
+    return (
+      <div className="bg-gray-100 border border-gray-300 rounded p-2">
+        <span className="px-1.5 py-0.5 rounded text-xs bg-gray-200 text-gray-600 font-medium">Thinking</span>
+        <div className="whitespace-pre-wrap text-gray-600 text-sm mt-1">{part.thinking}</div>
+      </div>
+    );
+  }
+  if (part.type === "text") {
+    return <div className="whitespace-pre-wrap">{part.text}</div>;
+  }
+  if (part.type === "tool_use") {
+    return (
+      <div className="bg-purple-50 border border-purple-200 rounded p-2">
+        <div className="font-medium text-purple-700 text-xs mb-1">Tool: {part.name}</div>
+        <pre className="whitespace-pre-wrap text-xs overflow-auto max-h-48">{JSON.stringify(part.input, null, 2)}</pre>
+      </div>
+    );
+  }
+  if (part.type === "tool_result") {
+    return (
+      <div className="bg-purple-50 border border-purple-200 rounded p-2">
+        <div className="font-medium text-purple-700 text-xs mb-1">Tool Result{part.tool_use_id ? ` (${part.tool_use_id})` : ""}</div>
+        <div className="whitespace-pre-wrap text-sm">
+          {typeof part.content === "string"
+            ? part.content
+            : Array.isArray(part.content)
+              ? part.content.map((c: any, k: number) => <div key={k}>{c.text ?? JSON.stringify(c)}</div>)
+              : JSON.stringify(part.content)}
+        </div>
+      </div>
+    );
+  }
+  if (part.type === "image" || part.type === "image_url") {
+    return (
+      <div className="bg-gray-100 border border-gray-200 rounded p-2 text-xs text-gray-500 italic">
+        [Image]
+      </div>
+    );
+  }
+  return <pre className="whitespace-pre-wrap text-xs bg-gray-50 rounded p-2 overflow-auto max-h-48">{JSON.stringify(part, null, 2)}</pre>;
 }
 
 // --- Anthropic Response Content ---
