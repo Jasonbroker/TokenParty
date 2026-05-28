@@ -123,11 +123,11 @@ export default function Requests() {
                 <Section title="Headers">
                   <HeadersTable headers={reqLog.headers} />
                 </Section>
-                <Section title="Messages" defaultOpen>
+                <Section title={`Messages (${reqLog.body?.messages?.length ?? 0})`}>
                   <MessageList messages={reqLog.body?.messages} />
                 </Section>
                 {reqLog.body?.system && (
-                  <Section title="System Prompt" defaultOpen>
+                  <Section title="System Prompt">
                     <div className="bg-amber-50 border border-amber-200 rounded p-3 whitespace-pre-wrap">
                       {typeof reqLog.body.system === "string"
                         ? reqLog.body.system
@@ -234,6 +234,29 @@ function TokenUsageBar({ input, output }: { input: number; output: number }) {
 function MessageList({ messages }: { messages?: any[] }) {
   if (!messages || messages.length === 0) return <div className="text-gray-400 italic">No messages</div>;
 
+  return (
+    <div className="space-y-1">
+      {messages.map((msg, i) => (
+        <MessageItem key={i} msg={msg} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function getMessagePreview(msg: any): string {
+  const content = msg.content;
+  if (typeof content === "string") return content.slice(0, 80);
+  if (Array.isArray(content)) {
+    const textPart = content.find((p: any) => p.type === "text" && p.text);
+    if (textPart) return textPart.text.slice(0, 80);
+    return content.map((p: any) => p.type).join(", ");
+  }
+  return "";
+}
+
+function MessageItem({ msg, index }: { msg: any; index: number }) {
+  const [open, setOpen] = useState(false);
+
   const roleColors: Record<string, string> = {
     user: "bg-blue-50 border-blue-200",
     assistant: "bg-green-50 border-green-200",
@@ -241,27 +264,32 @@ function MessageList({ messages }: { messages?: any[] }) {
     tool: "bg-purple-50 border-purple-200",
   };
 
+  const preview = getMessagePreview(msg);
+
   return (
-    <div className="space-y-2">
-      {messages.map((msg, i) => (
-        <div key={i} className={`rounded border p-3 ${roleColors[msg.role] ?? "bg-gray-50 border-gray-200"}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-medium text-gray-600 text-xs uppercase">{msg.role}</span>
-            <span className="text-gray-300 text-xs">#{i + 1}</span>
-          </div>
-          <div className="space-y-2">
-            {typeof msg.content === "string" ? (
-              <div className="whitespace-pre-wrap">{msg.content}</div>
-            ) : Array.isArray(msg.content) ? (
-              msg.content.map((part: any, j: number) => (
-                <MessagePart key={j} part={part} />
-              ))
-            ) : (
-              <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(msg.content, null, 2)}</pre>
-            )}
-          </div>
+    <div className={`rounded border ${roleColors[msg.role] ?? "bg-gray-50 border-gray-200"}`}>
+      <div
+        className="flex items-center gap-2 px-3 py-2 cursor-pointer"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="text-xs text-gray-400">{open ? "▼" : "▶"}</span>
+        <span className="font-medium text-gray-600 text-xs uppercase">{msg.role}</span>
+        <span className="text-gray-300 text-xs">#{index + 1}</span>
+        {!open && <span className="text-gray-400 text-xs truncate ml-1">{preview}</span>}
+      </div>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {typeof msg.content === "string" ? (
+            <div className="whitespace-pre-wrap">{msg.content}</div>
+          ) : Array.isArray(msg.content) ? (
+            msg.content.map((part: any, j: number) => (
+              <MessagePart key={j} part={part} />
+            ))
+          ) : (
+            <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(msg.content, null, 2)}</pre>
+          )}
         </div>
-      ))}
+      )}
     </div>
   );
 }
