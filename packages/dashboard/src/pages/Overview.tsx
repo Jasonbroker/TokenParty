@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { api } from "../lib/api";
+import { formatCost } from "./Settings";
 
 export default function Overview() {
   const [stats, setStats] = useState<any[]>([]);
@@ -30,11 +31,7 @@ export default function Overview() {
   const totalOutput = stats.reduce((s, r) => s + r.output_tokens, 0);
   const totalCacheRead = stats.reduce((s, r) => s + (r.cache_read_tokens ?? 0), 0);
   const totalCacheWrite = stats.reduce((s, r) => s + (r.cache_write_tokens ?? 0), 0);
-  const costByCurrency = stats.reduce((acc: Record<string, number>, r) => {
-    const cur = r.currency ?? "USD";
-    acc[cur] = (acc[cur] ?? 0) + (r.cost ?? 0);
-    return acc;
-  }, {});
+  const totalCost = stats.reduce((s, r) => s + (r.cost ?? 0), 0);
 
   return (
     <div>
@@ -59,7 +56,7 @@ export default function Overview() {
       <div className="grid grid-cols-3 gap-4 mb-8">
         <StatCard label="Cache Read" value={totalCacheRead.toLocaleString()} />
         <StatCard label="Cache Write" value={totalCacheWrite.toLocaleString()} />
-        <StatCard label="Total Cost" value={Object.entries(costByCurrency).map(([c, v]) => `${c === "CNY" ? "¥" : "$"}${v.toFixed(4)}`).join(" / ") || "-"} />
+        <StatCard label="Total Cost" value={formatCost(totalCost)} />
       </div>
 
       <div className="bg-white rounded-lg shadow p-4" style={{ height: 350 }}>

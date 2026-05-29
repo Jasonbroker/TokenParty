@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { formatCost } from "./Settings";
 
 export default function Requests() {
   const [requests, setRequests] = useState<any[]>([]);
@@ -54,7 +55,7 @@ export default function Requests() {
                   <td className="px-3 py-2 font-mono text-xs">{req.token_id?.slice(0, 12)}</td>
                   <td className="px-3 py-2">{req.model}</td>
                   <td className="px-3 py-2 text-right">{(req.input_tokens ?? 0) + (req.output_tokens ?? 0)}</td>
-                  <td className="px-3 py-2 text-right text-xs">{req.cost > 0 ? `${req.currency === "CNY" ? "¥" : "$"}${req.cost.toFixed(4)}` : "-"}</td>
+                  <td className="px-3 py-2 text-right text-xs">{req.cost > 0 ? formatCost(req.cost) : "-"}</td>
                   <td className="px-3 py-2 text-right">{req.latency_ms}ms</td>
                   <td className="px-3 py-2 text-center">
                     <span className={`px-2 py-0.5 rounded text-xs ${req.status === 200 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
@@ -93,7 +94,7 @@ export default function Requests() {
               <div><span className="text-gray-500">Latency:</span> {selected.latency_ms}ms</div>
               <div><span className="text-gray-500">Status:</span> <span className={selected.status === 200 ? "text-green-600" : "text-red-600"}>{selected.status}</span></div>
               <div><span className="text-gray-500">Entry:</span> {reqLog?.headers?.["x-entry-protocol"] ?? "-"}</div>
-              <div><span className="text-gray-500">Cost:</span> {selected.cost > 0 ? `${selected.currency === "CNY" ? "¥" : "$"}${selected.cost.toFixed(4)}` : "-"}</div>
+              <div><span className="text-gray-500">Cost:</span> {selected.cost > 0 ? formatCost(selected.cost) : "-"}</div>
             </div>
             {(selected.input_tokens > 0 || selected.output_tokens > 0) && (
               <TokenUsageBar input={selected.input_tokens} output={selected.output_tokens} cacheRead={selected.cache_read_tokens ?? 0} cacheWrite={selected.cache_write_tokens ?? 0} />
