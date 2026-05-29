@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+packages/proxy/dashboard/
 
 # Runtime data
 packages/proxy/config.yaml
