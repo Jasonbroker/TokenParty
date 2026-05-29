@@ -111,7 +111,7 @@ export async function forwardRequest(
         let buffer = "";
         let fullContent = "";
         let rawEvents: any[] = [];
-        let usage: { input_tokens: number; output_tokens: number } | undefined;
+        let usage: { input_tokens: number; output_tokens: number; cache_input_tokens?: number } | undefined;
         let chunkId = `chatcmpl-${requestId}`;
         const o2aConverter = new OpenaiToAnthropicStreamConverter();
 
@@ -143,10 +143,10 @@ export async function forwardRequest(
                     await s.writeSSE({ data: JSON.stringify(converted.chunk) });
                   }
                   if (parsed.type === "message_delta" && parsed.usage) {
-                    usage = { input_tokens: parsed.usage.input_tokens ?? 0, output_tokens: parsed.usage.output_tokens ?? 0 };
+                    usage = { input_tokens: parsed.usage.input_tokens ?? 0, output_tokens: parsed.usage.output_tokens ?? 0, cache_input_tokens: parsed.usage.cache_read_input_tokens ?? 0 };
                   }
                   if (parsed.type === "message_start" && parsed.message?.usage) {
-                    usage = { ...usage, input_tokens: parsed.message.usage.input_tokens ?? 0 } as any;
+                    usage = { ...usage, input_tokens: parsed.message.usage.input_tokens ?? 0, cache_input_tokens: parsed.message.usage.cache_read_input_tokens ?? 0 } as any;
                   }
                 } else if (needsStreamConversion && provider.type === "openai" && entry === "anthropic") {
                   const converted = o2aConverter.convert(parsed, model);
@@ -157,7 +157,7 @@ export async function forwardRequest(
                     if (converted.content) fullContent += converted.content;
                   }
                   if (parsed.usage) {
-                    usage = { input_tokens: parsed.usage.prompt_tokens ?? 0, output_tokens: parsed.usage.completion_tokens ?? 0 };
+                    usage = { input_tokens: parsed.usage.prompt_tokens ?? 0, output_tokens: parsed.usage.completion_tokens ?? 0, cache_input_tokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0 };
                   }
                 } else {
                   // Same protocol, pass through — preserve event type
@@ -188,6 +188,7 @@ export async function forwardRequest(
                 usage = {
                   input_tokens: evt.response.usage.input_tokens ?? 0,
                   output_tokens: evt.response.usage.output_tokens ?? 0,
+                  cache_input_tokens: evt.response.usage.cache_read_input_tokens ?? 0,
                 };
                 break;
               }
@@ -195,6 +196,7 @@ export async function forwardRequest(
                 usage = {
                   input_tokens: evt.usage.prompt_tokens ?? evt.usage.input_tokens ?? 0,
                   output_tokens: evt.usage.completion_tokens ?? evt.usage.output_tokens ?? 0,
+                  cache_input_tokens: evt.usage.prompt_tokens_details?.cached_tokens ?? evt.usage.cache_read_input_tokens ?? 0,
                 };
                 break;
               }
@@ -216,6 +218,7 @@ export async function forwardRequest(
             model,
             inputTokens: usage?.input_tokens ?? 0,
             outputTokens: usage?.output_tokens ?? 0,
+            cacheInputTokens: usage?.cache_input_tokens ?? 0,
             latencyMs: Date.now() - startTime,
             status: response.status,
             logFile,
@@ -244,6 +247,7 @@ export async function forwardRequest(
       model,
       inputTokens: usage?.input_tokens ?? 0,
       outputTokens: usage?.output_tokens ?? 0,
+      cacheInputTokens: usage?.cache_input_tokens ?? 0,
       latencyMs,
       status: response.status,
       logFile,
@@ -465,12 +469,14 @@ function extractUsage(body: any, providerType: string) {
     return {
       input_tokens: body.usage.prompt_tokens ?? body.usage.input_tokens ?? 0,
       output_tokens: body.usage.completion_tokens ?? body.usage.output_tokens ?? 0,
+      cache_input_tokens: body.usage.prompt_tokens_details?.cached_tokens ?? body.usage.cache_read_input_tokens ?? 0,
     };
   }
   if (providerType === "anthropic") {
     return {
       input_tokens: body.usage.input_tokens ?? 0,
       output_tokens: body.usage.output_tokens ?? 0,
+      cache_input_tokens: body.usage.cache_read_input_tokens ?? 0,
     };
   }
   return undefined;
@@ -482,21 +488,23 @@ function extractUsageFromChunk(parsed: any, providerType: string) {
       return {
         input_tokens: parsed.response.usage.input_tokens ?? 0,
         output_tokens: parsed.response.usage.output_tokens ?? 0,
+        cache_input_tokens: parsed.response.usage.cache_read_input_tokens ?? 0,
       };
     }
     if (parsed.usage) {
       return {
         input_tokens: parsed.usage.prompt_tokens ?? parsed.usage.input_tokens ?? 0,
         output_tokens: parsed.usage.completion_tokens ?? parsed.usage.output_tokens ?? 0,
+        cache_input_tokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? parsed.usage.cache_read_input_tokens ?? 0,
       };
     }
   }
   if (providerType === "anthropic") {
     if (parsed.type === "message_delta" && parsed.usage) {
-      return { input_tokens: parsed.usage.input_tokens ?? 0, output_tokens: parsed.usage.output_tokens ?? 0 };
+      return { input_tokens: parsed.usage.input_tokens ?? 0, output_tokens: parsed.usage.output_tokens ?? 0, cache_input_tokens: parsed.usage.cache_read_input_tokens ?? 0 };
     }
     if (parsed.type === "message_start" && parsed.message?.usage) {
-      return { input_tokens: parsed.message.usage.input_tokens ?? 0, output_tokens: 0 };
+      return { input_tokens: parsed.message.usage.input_tokens ?? 0, output_tokens: 0, cache_input_tokens: parsed.message.usage.cache_read_input_tokens ?? 0 };
     }
   }
   return undefined;

@@ -6,6 +6,7 @@ const ModelSchema = z.union([
     id: z.string(),
     inputPrice: z.number().optional(),
     outputPrice: z.number().optional(),
+    cacheInputPrice: z.number().optional(),
   }),
 ]);
 
@@ -53,8 +54,8 @@ export function getModelId(model: ModelConfig): string {
   return typeof model === "string" ? model : model.id;
 }
 
-export function getModelPricing(model: ModelConfig): { inputPrice?: number; outputPrice?: number } | undefined {
+export function getModelPricing(model: ModelConfig): { inputPrice?: number; outputPrice?: number; cacheInputPrice?: number } | undefined {
   if (typeof model === "string") return undefined;
-  if (model.inputPrice === undefined && model.outputPrice === undefined) return undefined;
-  return { inputPrice: model.inputPrice, outputPrice: model.outputPrice };
+  if (model.inputPrice === undefined && model.outputPrice === undefined && model.cacheInputPrice === undefined) return undefined;
+  return { inputPrice: model.inputPrice, outputPrice: model.outputPrice, cacheInputPrice: model.cacheInputPrice };
 }

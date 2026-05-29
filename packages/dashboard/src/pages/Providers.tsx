@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
-type ModelConfig = string | { id: string; inputPrice?: number; outputPrice?: number };
+type ModelConfig = string | { id: string; inputPrice?: number; outputPrice?: number; cacheInputPrice?: number };
 
 interface Provider {
   id: string;
@@ -22,7 +22,7 @@ function getModelId(m: ModelConfig): string {
 function normalizeModels(models: ModelConfig[]): ModelConfig[] {
   return models.map((m) => {
     if (typeof m === "string") return m;
-    if (m.inputPrice === undefined && m.outputPrice === undefined) return m.id;
+    if (m.inputPrice === undefined && m.outputPrice === undefined && m.cacheInputPrice === undefined) return m.id;
     return m;
   });
 }
@@ -280,6 +280,14 @@ export default function Providers() {
                         onChange={(e) => updateModel(i, "outputPrice", e.target.value ? Number(e.target.value) : undefined)}
                         placeholder="Output $/1M"
                         title="Output price ($ per 1M tokens)"
+                        className="w-24 border rounded px-2 py-1.5 text-sm"
+                      />
+                      <input
+                        type="number"
+                        value={typeof m === "object" ? (m.cacheInputPrice ?? "") : ""}
+                        onChange={(e) => updateModel(i, "cacheInputPrice", e.target.value ? Number(e.target.value) : undefined)}
+                        placeholder="Cache $/1M"
+                        title="Cached input price ($ per 1M tokens)"
                         className="w-24 border rounded px-2 py-1.5 text-sm"
                       />
                       <button onClick={() => removeModel(i)} className="text-red-500 hover:text-red-700 px-1 py-1.5">×</button>

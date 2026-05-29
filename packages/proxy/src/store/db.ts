@@ -28,6 +28,7 @@ function runMigrations(db: Database.Database) {
       request_count INTEGER DEFAULT 0,
       input_tokens INTEGER DEFAULT 0,
       output_tokens INTEGER DEFAULT 0,
+      cache_input_tokens INTEGER DEFAULT 0,
       cost REAL DEFAULT 0,
       PRIMARY KEY (date, token_id, provider_id, model)
     );
@@ -40,6 +41,7 @@ function runMigrations(db: Database.Database) {
       model TEXT,
       input_tokens INTEGER,
       output_tokens INTEGER,
+      cache_input_tokens INTEGER DEFAULT 0,
       latency_ms INTEGER,
       status INTEGER,
       log_file TEXT NOT NULL,
@@ -61,10 +63,16 @@ function runMigrations(db: Database.Database) {
   if (!colNames.has("cost")) {
     db.exec(`ALTER TABLE request_index ADD COLUMN cost REAL DEFAULT 0`);
   }
+  if (!colNames.has("cache_input_tokens")) {
+    db.exec(`ALTER TABLE request_index ADD COLUMN cache_input_tokens INTEGER DEFAULT 0`);
+  }
 
   const dailyCols = db.prepare(`PRAGMA table_info(usage_daily)`).all() as { name: string }[];
   const dailyColNames = new Set(dailyCols.map((c) => c.name));
   if (!dailyColNames.has("cost")) {
     db.exec(`ALTER TABLE usage_daily ADD COLUMN cost REAL DEFAULT 0`);
+  }
+  if (!dailyColNames.has("cache_input_tokens")) {
+    db.exec(`ALTER TABLE usage_daily ADD COLUMN cache_input_tokens INTEGER DEFAULT 0`);
   }
 }
