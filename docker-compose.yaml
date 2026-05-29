@@ -1,0 +1,8 @@
+services:
+  tokenparty:
+    build: .
+    ports:
+      - "3456:3456"
+    volumes:
+      - ~/.tokenparty:/root/.tokenparty
+    restart: unless-stopped

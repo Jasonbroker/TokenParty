@@ -70,6 +70,16 @@ tokenparty
 
 Open `http://localhost:3456` to access the dashboard — configure providers and tokens from there.
 
+### Docker
+
+```bash
+# Quick deploy
+docker run -d -p 3456:3456 -v ~/.tokenparty:/root/.tokenparty --name tokenparty $(docker build -q .)
+
+# Or with docker-compose
+docker compose up -d
+```
+
 ### From source
 
 ```bash
@@ -253,7 +263,7 @@ The proxy uses `tsx watch` for instant reload on code changes. The dashboard use
 - [x] Load balancing across multiple keys per provider
 - [x] Token allowedProviders grouping (`*` / `group:<type>`)
 - [x] Cost estimation with per-model pricing config
-- [ ] Docker image & docker-compose
+- [x] Docker image & docker-compose
 - [ ] Provider fallback / retry
 - [ ] Usage quota per token
 - [ ] Admin authentication for dashboard
