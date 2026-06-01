@@ -8,7 +8,16 @@ export default function Requests() {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"request" | "response">("request");
+  const [keyNames, setKeyNames] = useState<Record<string, string>>({});
   const limit = 20;
+
+  useEffect(() => {
+    api.getKeys().then((keys) => {
+      const map: Record<string, string> = {};
+      for (const k of keys) map[k.key] = k.name;
+      setKeyNames(map);
+    }).catch(console.error);
+  }, []);
 
   useEffect(() => {
     api.getRequests({ limit, offset }).then((res) => {
@@ -52,7 +61,7 @@ export default function Requests() {
                   className={`border-t cursor-pointer hover:bg-gray-50 ${selected?.id === req.id ? "bg-indigo-50" : ""}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{new Date(req.timestamp).toLocaleString()}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{req.token_id?.slice(0, 12)}</td>
+                  <td className="px-3 py-2 text-xs">{keyNames[req.token_id] || req.token_id?.slice(0, 12)}</td>
                   <td className="px-3 py-2">{req.model}</td>
                   <td className="px-3 py-2 text-right">{(req.input_tokens ?? 0) + (req.output_tokens ?? 0)}</td>
                   <td className="px-3 py-2 text-right text-xs">{req.cost > 0 ? formatCost(req.cost) : "-"}</td>
