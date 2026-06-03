@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenParty — Self-Hosted AI Gateway</title>
+  <meta name="description" content="Route, observe, and control your LLM API traffic. Multi-provider smart routing, budget enforcement, and real-time analytics." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --canvas: #F9F8F0;
+      --ink: #191919;
+      --clay: #D97757;
+      --marl: #E6E1D1;
+      --outline: #747878;
+      --outline-variant: #C4C7C7;
+      --serif: 'Newsreader', Georgia, serif;
+      --sans: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --max-w: 1200px;
+      --gap: 32px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--canvas);
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--marl);
+      padding: 16px 0;
+    }
+    .nav-inner {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 var(--gap);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      font-family: var(--serif);
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      color: var(--outline);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--ink); }
+
+    /* SECTIONS */
+    section { padding: 120px 0; }
+    .container {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 var(--gap);
+    }
+
+    /* HERO */
+    .hero { padding: 160px 0 120px; }
+    .hero h1 {
+      font-family: var(--serif);
+      font-size: 64px;
+      font-weight: 400;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      max-width: 800px;
+    }
+    .hero .subtitle {
+      font-size: 20px;
+      color: var(--outline);
+      margin-top: 24px;
+      max-width: 560px;
+      line-height: 1.6;
+    }
+    .hero .cta-row {
+      margin-top: 48px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .btn-primary {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 14px 32px;
+      background: var(--ink);
+      color: var(--canvas);
+      text-decoration: none;
+      border: 1px solid var(--ink);
+      transition: all 0.2s;
+    }
+    .btn-primary:hover { background: #333; border-color: #333; }
+    .btn-secondary {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 14px 32px;
+      background: transparent;
+      color: var(--ink);
+      text-decoration: none;
+      border: 1px solid var(--ink);
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { background: var(--marl); }
+    .install-cmd {
+      margin-top: 24px;
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--outline);
+    }
+    .install-cmd code {
+      background: var(--marl);
+      padding: 8px 16px;
+      border: 1px solid var(--outline-variant);
+    }
+
+    /* PROBLEM */
+    .problem { background: var(--ink); color: var(--canvas); padding: 120px 0; }
+    .problem .label {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--clay);
+      margin-bottom: 24px;
+    }
+    .problem h2 {
+      font-family: var(--serif);
+      font-size: 40px;
+      font-weight: 400;
+      line-height: 1.2;
+      max-width: 700px;
+      margin-bottom: 64px;
+    }
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+    }
+    .compare-col h3 {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+    }
+    .compare-col.without h3 { color: var(--outline); }
+    .compare-col.with h3 { color: var(--clay); }
+    .compare-col ul { list-style: none; }
+    .compare-col ul li {
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 15px;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.7);
+    }
+    .compare-col.with ul li { color: rgba(255,255,255,0.9); }
+
+    /* PILLARS */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--gap);
+    }
+    .pillar {
+      background: var(--marl);
+      padding: 48px 32px;
+    }
+    .pillar-icon {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--clay);
+      margin-bottom: 24px;
+    }
+    .pillar h3 {
+      font-family: var(--serif);
+      font-size: 28px;
+      font-weight: 400;
+      margin-bottom: 16px;
+    }
+    .pillar p {
+      color: var(--outline);
+      font-size: 15px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .pillar ul {
+      list-style: none;
+    }
+    .pillar ul li {
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 8px 0;
+      border-top: 1px solid var(--outline-variant);
+      color: var(--ink);
+    }
+
+    /* SECTION HEADER */
+    .section-label {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--clay);
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-family: var(--serif);
+      font-size: 40px;
+      font-weight: 400;
+      line-height: 1.2;
+      margin-bottom: 64px;
+    }
+
+    /* SCREENSHOTS */
+    .screenshots { background: var(--marl); padding: 120px 0; }
+    .screenshots-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--gap);
+    }
+    .screenshot-card {}
+    .screenshot-card img {
+      width: 100%;
+      display: block;
+      border: 1px solid var(--outline-variant);
+      transition: transform 0.3s ease;
+    }
+    .screenshot-card img:hover { transform: scale(1.02); }
+    .screenshot-card .caption {
+      margin-top: 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      color: var(--outline);
+    }
+    .screenshot-card .caption-title {
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 4px;
+    }
+
+    /* HOW IT WORKS */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--gap);
+      counter-reset: step;
+    }
+    .step {
+      counter-increment: step;
+    }
+    .step::before {
+      content: "0" counter(step);
+      font-family: var(--serif);
+      font-size: 48px;
+      font-weight: 400;
+      color: var(--marl);
+      display: block;
+      margin-bottom: 24px;
+    }
+    .step h3 {
+      font-family: var(--sans);
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .step p {
+      font-size: 15px;
+      color: var(--outline);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .step pre {
+      background: var(--ink);
+      color: var(--canvas);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+    .step pre .comment { color: #747878; }
+    .step pre .string { color: var(--clay); }
+
+    /* FEATURES */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--outline-variant);
+      border: 1px solid var(--outline-variant);
+    }
+    .feature {
+      background: var(--canvas);
+      padding: 32px;
+    }
+    .feature h4 {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    .feature p {
+      font-size: 14px;
+      color: var(--outline);
+      line-height: 1.5;
+    }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--marl);
+      padding: 48px 0;
+    }
+    .footer-inner {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 var(--gap);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer-left {
+      font-family: var(--serif);
+      font-size: 18px;
+    }
+    .footer-right {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-right a {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--outline);
+      text-decoration: none;
+      letter-spacing: 0.05em;
+    }
+    .footer-right a:hover { color: var(--ink); }
+    .footer-license {
+      font-size: 13px;
+      color: var(--outline);
+      margin-top: 24px;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      section { padding: 80px 0; }
+      .hero { padding: 100px 0 80px; }
+      .hero h1 { font-size: 36px; }
+      .hero .subtitle { font-size: 17px; }
+      .hero .cta-row { flex-direction: column; align-items: flex-start; }
+      .compare-grid,
+      .pillars-grid,
+      .screenshots-grid,
+      .steps-grid { grid-template-columns: 1fr; }
+      .features-grid { grid-template-columns: 1fr; }
+      .section-title { font-size: 28px; }
+      .problem h2 { font-size: 28px; }
+      .footer-inner { flex-direction: column; gap: 16px; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">TokenParty</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#screenshots">Dashboard</a>
+        <a href="#start">Get Started</a>
+        <a href="https://github.com/nicekid1/TokenParty">GitHub</a>
+        <a href="https://www.npmjs.com/package/@zhouzhengchang/token-party">npm</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <h1>One gateway for all your AI providers.</h1>
+      <p class="subtitle">
+        Route, observe, and control your LLM traffic. Smart cost optimization,
+        multi-tenant budgets, and real-time analytics &mdash; self-hosted.
+      </p>
+      <div class="cta-row">
+        <a href="#start" class="btn-primary">Get Started</a>
+        <a href="https://github.com/nicekid1/TokenParty" class="btn-secondary">View on GitHub</a>
+      </div>
+      <div class="install-cmd">
+        <code>npm install -g @zhouzhengchang/token-party</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM -->
+  <section class="problem">
+    <div class="container">
+      <div class="label">The Problem</div>
+      <h2>Managing AI APIs across a team shouldn't feel like this.</h2>
+      <div class="compare-grid">
+        <div class="compare-col without">
+          <h3>Without a Gateway</h3>
+          <ul>
+            <li>API keys scattered across apps, .env files, and Slack messages</li>
+            <li>No idea who spent $400 on GPT-4o last Tuesday</li>
+            <li>Switching providers means rewriting every integration</li>
+            <li>One leaked key exposes your entire account</li>
+            <li>Budget surprises at the end of every month</li>
+          </ul>
+        </div>
+        <div class="compare-col with">
+          <h3>With TokenParty</h3>
+          <ul>
+            <li>One endpoint, scoped keys per user with provider-level access control</li>
+            <li>Real-time cost dashboard &mdash; by user, model, provider, and tag</li>
+            <li>Switch providers in config. Your apps never change.</li>
+            <li>Isolated tokens &mdash; revoke one without touching the rest</li>
+            <li>Monthly budgets with automatic enforcement</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THREE PILLARS -->
+  <section id="features">
+    <div class="container">
+      <div class="section-label">Core Value</div>
+      <h2 class="section-title">Built around three principles.</h2>
+      <div class="pillars-grid">
+        <div class="pillar">
+          <div class="pillar-icon">Save Money</div>
+          <h3>Spend less on the same work.</h3>
+          <p>
+            Smart routing picks the cheapest provider for each model automatically.
+            Set monthly budgets per user. See exactly where every dollar goes.
+          </p>
+          <ul>
+            <li>Cost-based smart routing</li>
+            <li>Monthly budget enforcement</li>
+            <li>Per-model pricing config</li>
+            <li>Cost analytics by user, model, tag</li>
+            <li>CNY/USD currency support</li>
+          </ul>
+        </div>
+        <div class="pillar">
+          <div class="pillar-icon">Stay Simple</div>
+          <h3>One endpoint. Any provider.</h3>
+          <p>
+            Send OpenAI-format requests to Claude. Send Anthropic-format requests to GPT.
+            Protocol translation happens transparently.
+          </p>
+          <ul>
+            <li>OpenAI &harr; Anthropic protocol conversion</li>
+            <li>Full SSE streaming support</li>
+            <li>Hot-reload config &mdash; no restarts</li>
+            <li>npm install &amp; run &mdash; no dependencies</li>
+            <li>Docker-ready deployment</li>
+          </ul>
+        </div>
+        <div class="pillar">
+          <div class="pillar-icon">Keep Control</div>
+          <h3>Know everything. Limit anything.</h3>
+          <p>
+            Every request logged. Every token counted. Every user scoped.
+            Admin and user portals give the right view to the right person.
+          </p>
+          <ul>
+            <li>Multi-user key management</li>
+            <li>Per-user provider access control</li>
+            <li>Full request/response audit logs</li>
+            <li>Separate admin &amp; user dashboards</li>
+            <li>Multi-account quick switching</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREENSHOTS -->
+  <section class="screenshots" id="screenshots">
+    <div class="container">
+      <div class="section-label">Dashboard</div>
+      <h2 class="section-title">Complete visibility, built in.</h2>
+      <div class="screenshots-grid">
+        <div class="screenshot-card">
+          <img src="img/overview.png" alt="TokenParty Overview Dashboard" loading="lazy" />
+          <div class="caption">Admin</div>
+          <div class="caption-title">Cost &amp; Usage Overview</div>
+        </div>
+        <div class="screenshot-card">
+          <img src="img/requests.png" alt="TokenParty Request Inspector" loading="lazy" />
+          <div class="caption">Debugging</div>
+          <div class="caption-title">Request Inspector</div>
+        </div>
+        <div class="screenshot-card">
+          <img src="img/users.png" alt="TokenParty User Management" loading="lazy" />
+          <div class="caption">Team</div>
+          <div class="caption-title">User &amp; Budget Management</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="start">
+    <div class="container">
+      <div class="section-label">Get Started</div>
+      <h2 class="section-title">Running in under a minute.</h2>
+      <div class="steps-grid">
+        <div class="step">
+          <h3>Install</h3>
+          <p>One command. No database setup, no Redis, no external services.</p>
+          <pre><span class="comment"># via npm</span>
+npm install -g @zhouzhengchang/token-party
+
+<span class="comment"># or Docker</span>
+docker compose up -d</pre>
+        </div>
+        <div class="step">
+          <h3>Configure</h3>
+          <p>Add your providers and create user tokens. Config hot-reloads on save.</p>
+          <pre><span class="comment"># Open the dashboard</span>
+open http://localhost:<span class="string">3456</span>
+
+<span class="comment"># Add providers, create tokens,</span>
+<span class="comment"># set budgets — all from the UI</span></pre>
+        </div>
+        <div class="step">
+          <h3>Use</h3>
+          <p>Point any SDK at your gateway. That's it.</p>
+          <pre><span class="comment"># Works with any OpenAI SDK</span>
+client = OpenAI(
+  base_url=<span class="string">"http://localhost:3456/v1"</span>,
+  api_key=<span class="string">"tp-your-token"</span>
+)</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE GRID -->
+  <section>
+    <div class="container">
+      <div class="section-label">Everything Included</div>
+      <h2 class="section-title">No plugins. No add-ons. No surprises.</h2>
+      <div class="features-grid">
+        <div class="feature">
+          <h4>Protocol Translation</h4>
+          <p>OpenAI &harr; Anthropic format conversion. Use any SDK with any provider.</p>
+        </div>
+        <div class="feature">
+          <h4>SSE Streaming</h4>
+          <p>Full streaming with transparent protocol conversion between formats.</p>
+        </div>
+        <div class="feature">
+          <h4>Smart Routing</h4>
+          <p>Automatically picks the cheapest provider for each model request.</p>
+        </div>
+        <div class="feature">
+          <h4>Budget Enforcement</h4>
+          <p>Monthly spend caps per user. Requests blocked when exceeded.</p>
+        </div>
+        <div class="feature">
+          <h4>Multi-Key Load Balancing</h4>
+          <p>Round-robin across multiple API keys per provider.</p>
+        </div>
+        <div class="feature">
+          <h4>Provider Failover</h4>
+          <p>Automatic retry on the fallback provider when upstream errors occur.</p>
+        </div>
+        <div class="feature">
+          <h4>Request Audit Log</h4>
+          <p>Full request/response JSONL logging with token usage and cost metadata.</p>
+        </div>
+        <div class="feature">
+          <h4>Custom Tags</h4>
+          <p>Tag requests by project or feature via headers. Filter and analyze by tag.</p>
+        </div>
+        <div class="feature">
+          <h4>Hot Reload Config</h4>
+          <p>Edit config.yaml and changes apply instantly. No restarts needed.</p>
+        </div>
+        <div class="feature">
+          <h4>Cache Analytics</h4>
+          <p>Track prompt cache hit rates. Know exactly how much caching saves you.</p>
+        </div>
+        <div class="feature">
+          <h4>Dual Dashboards</h4>
+          <p>Separate admin and user portals. Right data for the right person.</p>
+        </div>
+        <div class="feature">
+          <h4>Zero Dependencies</h4>
+          <p>SQLite for storage. No Redis, no Postgres. Single process deployment.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-inner">
+      <div>
+        <div class="footer-left">TokenParty</div>
+        <div class="footer-license">MIT License &mdash; Free and open source.</div>
+      </div>
+      <div class="footer-right">
+        <a href="https://github.com/nicekid1/TokenParty">GitHub</a>
+        <a href="https://www.npmjs.com/package/@zhouzhengchang/token-party">npm</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

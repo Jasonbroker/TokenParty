@@ -5,16 +5,15 @@
 <h1 align="center">TokenParty</h1>
 
 <p align="center">
-  <strong>Self-hosted AI gateway — proxy, observe, and control your LLM API traffic.</strong>
+  <strong>Self-hosted AI gateway — route, observe, and control your LLM API traffic.</strong>
 </p>
 
 <p align="center">
+  <a href="#why-tokenparty">Why</a> •
   <a href="#quick-start">Quick Start</a> •
+  <a href="#dashboard">Dashboard</a> •
   <a href="#features">Features</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#api-reference">API</a> •
-  <a href="#dashboard">Dashboard</a>
+  <a href="#configuration">Configuration</a>
 </p>
 
 <p align="center">
@@ -30,51 +29,42 @@
 
 ## Why TokenParty?
 
-Running multiple AI providers across a team? TokenParty sits between your apps and the upstream APIs, giving you a single unified endpoint with full visibility into who's using what, how much it costs, and what's happening in real-time.
+**Save Money** — Smart routing picks the cheapest provider for each model. Set monthly budgets per user. See exactly where every dollar goes.
+
+**Stay Simple** — One endpoint for all providers. Send OpenAI-format requests to Claude, or Anthropic-format to GPT. Protocol translation is transparent.
+
+**Keep Control** — Scoped API keys, provider-level access control, full request logging, and separate admin/user dashboards give the right view to the right person.
 
 ```
-┌─────────────┐       ┌──────────────┐       ┌─────────────────┐
-│  Your Apps  │──────▶│  TokenParty  │──────▶│  OpenAI / Claude │
-│  (any SDK)  │◀──────│   Gateway    │◀──────│   / any LLM      │
-└─────────────┘       └──────────────┘       └─────────────────┘
+┌─────────────┐       ┌──────────────┐       ┌──────────────────┐
+│  Your Apps  │──────▶│  TokenParty  │──────▶│  OpenAI / Claude  │
+│  (any SDK)  │◀──────│   Gateway    │◀──────│  / DeepSeek / ... │
+└─────────────┘       └──────────────┘       └──────────────────┘
                             │
                       ┌─────┴─────┐
                       │ Dashboard │
                       └───────────┘
 ```
 
-## Features
-
-**🔀 Protocol Translation** — Send OpenAI-format requests to Anthropic models (and vice versa). Your apps don't need to care which provider is behind the scenes.
-
-**📊 Real-Time Dashboard** — Monitor token usage, request volume, latency, and costs per key/provider/model with interactive charts.
-
-**🔑 Multi-Tenant Key Management** — Issue scoped API keys with per-provider access control and rate limits. Rotate keys without touching your apps.
-
-**📡 Streaming First** — Full SSE streaming support with transparent protocol conversion between OpenAI and Anthropic stream formats.
-
-**🗄️ Request Logging** — Every request/response pair is logged as structured JSONL with full headers, bodies, and usage metadata.
-
-**⚡ Hot Reload Config** — Edit `config.yaml` and changes apply instantly. No restarts, no downtime.
-
-**🪶 Minimal Footprint** — Single binary-like deployment. SQLite for persistence. No Redis, no Postgres, no external dependencies.
-
 ## Quick Start
 
-### Install from npm
+### npm
 
 ```bash
 npm install -g @zhouzhengchang/token-party
 tokenparty
 ```
 
-Open `http://localhost:3456` to access the dashboard — configure providers and tokens from there.
-
 ### Docker
 
-Create these two files anywhere on your server:
+```bash
+# Create docker-compose.yaml, then:
+docker compose up -d
+```
 
-**docker-compose.yaml**
+<details>
+<summary>docker-compose.yaml</summary>
+
 ```yaml
 services:
   tokenparty:
@@ -91,112 +81,108 @@ volumes:
   npm_global:
 ```
 
-```bash
-docker compose up -d        # start
-docker compose logs -f       # view logs
-docker compose restart       # restart — auto picks up new npm version
-docker compose down          # stop
-```
+</details>
 
-The npm package is installed on first launch; subsequent restarts use the cached volume for instant startup. Restart the container to pick up new npm versions. The `tokenparty-data/` directory persists config, database, and logs. Edit `config.yaml` for hot-reloaded configuration changes.
+Open `http://localhost:3456` — configure providers and tokens from the dashboard.
 
-### From source
+### Use it
 
-```bash
-git clone https://github.com/user/TokenParty.git
-cd TokenParty
-pnpm install
-
-# Launch proxy + dashboard (config auto-generated on first run)
-pnpm dev
-pnpm dev:dashboard
-```
-
-### Use it immediately
-
-Point any OpenAI-compatible SDK at your proxy:
+Point any OpenAI-compatible SDK at your gateway:
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(
     base_url="http://localhost:3456/v1",
-    api_key="tp-example-token"
+    api_key="tp-your-token"
 )
 
-# This can route to Claude, GPT-4o, or any configured provider
+# Routes to the cheapest provider automatically
 response = client.chat.completions.create(
     model="claude-sonnet-4-20250514",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
-Or use the Anthropic SDK format:
+Or use the Anthropic SDK:
 
 ```python
 import anthropic
 
 client = anthropic.Anthropic(
     base_url="http://localhost:3456/anthropic",
-    api_key="tp-example-token"
+    api_key="tp-your-token"
 )
 
+# GPT-4o through the Anthropic SDK — protocol converted transparently
 message = client.messages.create(
-    model="gpt-4o",  # Yes, GPT-4o through the Anthropic SDK format
+    model="gpt-4o",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
-## Architecture
+## Dashboard
 
-```
-TokenParty/
-├── packages/
-│   ├── proxy/          # Hono reverse proxy (TypeScript)
-│   │   ├── src/
-│   │   │   ├── adapters/       # Protocol translators (OpenAI ↔ Anthropic)
-│   │   │   ├── proxy/          # Auth, routing, forwarding logic
-│   │   │   ├── metrics/        # Usage collection → SQLite
-│   │   │   ├── routes/         # HTTP route handlers
-│   │   │   ├── store/          # Database & log writer
-│   │   │   └── types/          # Shared type definitions
-│   └── dashboard/      # React + Vite + Tailwind + Recharts
-│       └── src/
-│           └── pages/          # Overview, Requests, Providers, Keys
-├── scripts/
-│   └── start.sh        # One-command launcher
-└── pnpm-workspace.yaml
-```
+<p align="center">
+  <img src="docs/img/overview.png" width="32%" alt="Overview" />
+  <img src="docs/img/requests.png" width="32%" alt="Requests" />
+  <img src="docs/img/users.png" width="32%" alt="Users" />
+</p>
 
-| Component | Tech | Role |
-|-----------|------|------|
-| Gateway | Hono + Node.js | Reverse proxy with streaming SSE |
-| Storage | better-sqlite3 (WAL) | Usage aggregation & request index |
-| Logs | JSONL files | Full request/response audit trail |
-| Dashboard | React 19 + Vite 6 | Real-time monitoring UI |
-| Config | YAML + chokidar | Hot-reloadable provider/key setup |
+**Admin Portal** — Overview with cost/usage charts, request inspector with full prompt/response detail, provider management with groups, user & budget management, settings.
+
+**User Portal** — Personal cost dashboard, budget progress, cache hit rate, model-level breakdown, request history.
+
+## Features
+
+| Category | Feature |
+|----------|---------|
+| **Routing** | Cost-based smart routing across providers |
+| **Routing** | Provider fallback & automatic retry |
+| **Routing** | Multi-key load balancing (round-robin) |
+| **Protocol** | OpenAI ↔ Anthropic bidirectional conversion |
+| **Protocol** | Full SSE streaming with protocol translation |
+| **Protocol** | OpenAI Chat, Responses, and Models API support |
+| **Cost** | Per-model pricing configuration (input/output/cache) |
+| **Cost** | Monthly budget enforcement per user |
+| **Cost** | Cost analytics by user, provider, model, and tag |
+| **Cost** | Cache hit rate tracking |
+| **Cost** | USD/CNY dual currency support |
+| **Access** | Scoped API keys with provider-level access control |
+| **Access** | Provider groups for bulk access rules |
+| **Access** | Usage quotas per token |
+| **Access** | Admin authentication |
+| **Observability** | Real-time usage dashboard with charts |
+| **Observability** | Full request/response JSONL audit logs |
+| **Observability** | Custom tags via `x-tkparty-tags` header |
+| **Observability** | Request filtering by user, provider, model, status, tags |
+| **Operations** | Hot-reload config (no restart needed) |
+| **Operations** | Environment variable interpolation in config |
+| **Operations** | Log storage management with auto-cleanup |
+| **Operations** | Version update check |
+| **Deployment** | npm global install — single command |
+| **Deployment** | Docker / docker-compose ready |
+| **Deployment** | Zero external dependencies (SQLite, no Redis/Postgres) |
+| **UX** | Separate admin & user portals |
+| **UX** | Multi-account quick switching |
 
 ## Configuration
 
 ```yaml
-server:
-  port: 3456
-  host: 0.0.0.0
-  logDir: ./logs
-  dataDir: ./data
-
 providers:
   - id: anthropic-main
     type: anthropic
     name: "Anthropic"
-    apiKey: ${ANTHROPIC_API_KEY}    # env var interpolation
+    apiKey: ${ANTHROPIC_API_KEY}
     baseUrl: https://api.anthropic.com
-    group: production               # custom group for key access control
+    group: production
     models:
-      - claude-sonnet-4-20250514
+      - id: claude-sonnet-4-20250514
+        inputPrice: 3        # $ per 1M tokens
+        outputPrice: 15
+        cacheReadPrice: 0.3
       - claude-opus-4-20250514
-    enabled: true
 
   - id: openai-main
     type: openai
@@ -207,92 +193,73 @@ providers:
     models:
       - gpt-4o
       - gpt-4o-mini
-      - o3-mini
-    enabled: true
 
 tokens:
   - key: tp-team-alice
     name: "Alice"
-    allowedProviders: ["group:production"]  # access all providers in "production" group
-    rateLimit: 100
+    allowedProviders: ["group:production"]
+    monthlyBudget: 100      # USD — enforced by the proxy
     enabled: true
 
   - key: tp-team-bob
     name: "Bob"
-    allowedProviders: [openai-main]         # or specify individual provider IDs
-    rateLimit: 50
+    allowedProviders: [openai-main]
+    monthlyBudget: 50
     enabled: true
 ```
 
-Environment variables in `${VAR}` format are resolved at startup.
+Unconfigured model prices are treated as free and routed with highest priority. Environment variables in `${VAR}` format are resolved at startup.
 
-## API Reference
+## Architecture
 
-### Proxy Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
-| `POST` | `/v1/responses` | OpenAI Responses API |
-| `GET` | `/v1/models` | List available models |
-| `POST` | `/anthropic/v1/messages` | Anthropic-compatible messages |
-| `GET` | `/health` | Health check |
-
-All proxy endpoints require `Authorization: Bearer <your-token>` header.
-
-### Dashboard API
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/stats?days=7` | Usage statistics |
-| `GET` | `/api/requests?limit=50` | Request history |
-| `GET` | `/api/requests/:id` | Request detail + logs |
-| `GET/POST/PUT/DELETE` | `/api/providers` | Provider CRUD |
-| `GET/POST/PUT/DELETE` | `/api/keys` | Key management |
-
-## Dashboard
-
-The built-in dashboard provides at-a-glance visibility:
-
-- **Overview** — Daily token usage charts, total requests, input/output token counts
-- **Requests** — Paginated request log with model, latency, status, and full request/response inspection
-- **Providers** — Manage upstream providers, toggle enable/disable, view supported models
-- **Keys** — Issue and revoke API keys, set per-key provider access and rate limits
-
-## Development
-
-```bash
-# Start proxy in watch mode
-pnpm dev
-
-# Start dashboard dev server (separate terminal)
-pnpm dev:dashboard
-
-# Build everything
-pnpm build
+```
+TokenParty/
+├── packages/
+│   ├── proxy/          # Hono reverse proxy (TypeScript)
+│   │   └── src/
+│   │       ├── adapters/       # OpenAI ↔ Anthropic translators
+│   │       ├── proxy/          # Auth, routing, forwarding
+│   │       ├── metrics/        # Usage collection → SQLite
+│   │       ├── routes/         # Admin & user API handlers
+│   │       └── store/          # Database & log writer
+│   └── dashboard/      # React + Vite + Tailwind + Recharts
+│       └── src/
+│           ├── layouts/        # Admin & User layouts
+│           └── pages/          # Overview, Requests, Providers, Users, Settings
 ```
 
-The proxy uses `tsx watch` for instant reload on code changes. The dashboard uses Vite with HMR.
+| Component | Tech | Role |
+|-----------|------|------|
+| Gateway | Hono + Node.js | Reverse proxy with streaming SSE |
+| Storage | better-sqlite3 (WAL) | Usage aggregation & request index |
+| Logs | JSONL files | Full request/response audit trail |
+| Dashboard | React 19 + Vite 6 | Admin & user monitoring UI |
+| Config | YAML + chokidar | Hot-reloadable setup |
 
 ## Roadmap
 
-- [x] npm package (`npm install -g @zhouzhengchang/token-party`)
-- [x] Load balancing across multiple keys per provider
-- [x] Token allowedProviders grouping (`*` / `group:<name>` / manual)
-- [x] Custom provider groups (assign providers to named groups, keys reference groups)
-- [x] Cost estimation with per-model pricing config
-- [x] Docker image & docker-compose
+- [x] npm package & Docker deployment
+- [x] Multi-provider support with load balancing
+- [x] OpenAI ↔ Anthropic protocol translation
+- [x] Full SSE streaming with protocol conversion
+- [x] Cost-based smart routing
+- [x] Per-user monthly budget enforcement
+- [x] Separate admin & user portals
+- [x] Multi-account quick switching
+- [x] Real-time cost & usage dashboard
+- [x] Request inspector with full audit trail
+- [x] Custom tags & filtering
+- [x] Provider groups & access control
 - [x] Provider fallback / retry
-- [x] Usage quota per token
-- [x] Admin authentication for dashboard
-- [x] SSE streaming passthrough (raw bytes, no re-encoding)
-- [x] Overview with multi-chart layout (Tokens / Cost / Requests)
-- [x] Request filtering (User / Provider / Model / Status / Tags)
-- [x] Custom tags via `x-tkparty-tags` header
-- [x] Log storage cleanup with configurable size limit
-- [x] Version update check in Settings
-- [ ] Session tracking
+- [x] Log storage management
+- [ ] Automatic prompt cache optimization
+- [ ] Automatic provider failover (health-based)
+- [ ] Cost savings report ("TokenParty saved you $XX")
+- [ ] Tag-based cost analysis
+- [ ] Usage alerts (webhook/email)
+- [ ] Model downgrade strategy (budget-aware)
 - [ ] Rate limiting enforcement
+- [ ] Session tracking
 
 ## License
 
@@ -301,5 +268,5 @@ MIT
 ---
 
 <p align="center">
-  <sub>Built with ❤️ and way too many tokens.</sub>
+  <sub>Built with way too many tokens.</sub>
 </p>
