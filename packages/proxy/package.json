@@ -8,8 +8,7 @@
   },
   "files": [
     "dist/",
-    "dashboard/",
-    "config.example.yaml"
+    "dashboard/"
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",

@@ -107,11 +107,7 @@ git clone https://github.com/user/TokenParty.git
 cd TokenParty
 pnpm install
 
-# Configure your providers
-cp packages/proxy/config.example.yaml packages/proxy/config.yaml
-# Edit config.yaml with your API keys
-
-# Launch proxy + dashboard
+# Launch proxy + dashboard (config auto-generated on first run)
 pnpm dev
 pnpm dev:dashboard
 ```
@@ -165,7 +161,6 @@ TokenParty/
 │   │   │   ├── routes/         # HTTP route handlers
 │   │   │   ├── store/          # Database & log writer
 │   │   │   └── types/          # Shared type definitions
-│   │   └── config.example.yaml
 │   └── dashboard/      # React + Vite + Tailwind + Recharts
 │       └── src/
 │           └── pages/          # Overview, Requests, Providers, Keys
