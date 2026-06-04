@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 interface SettingsData {
   displayCurrency: "USD" | "CNY";
   exchangeRate: number;
+  reverseMessages: boolean;
 }
 
 const STORAGE_KEY = "tokenparty_settings";
@@ -14,7 +15,7 @@ function loadSettings(): SettingsData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { displayCurrency: "USD", exchangeRate: DEFAULT_RATE };
+  return { displayCurrency: "USD", exchangeRate: DEFAULT_RATE, reverseMessages: false };
 }
 
 function saveSettings(data: SettingsData) {
@@ -101,6 +102,22 @@ export default function Settings({ mode = "admin" }: { mode?: "admin" | "user" }
         {saved && (
           <div className="text-sm text-green-600">Settings saved</div>
         )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 max-w-lg space-y-4 mt-6">
+        <h3 className="text-lg font-semibold">Request Detail</h3>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.reverseMessages ?? false}
+            onChange={(e) => update({ reverseMessages: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          <div>
+            <div className="text-sm font-medium text-gray-700">Messages Reverse Order</div>
+            <div className="text-xs text-gray-500">Show newest messages first in request detail</div>
+          </div>
+        </label>
       </div>
 
       {mode === "admin" && <div className="bg-white rounded-lg shadow p-6 max-w-lg space-y-6 mt-6">

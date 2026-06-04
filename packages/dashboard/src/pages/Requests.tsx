@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import { formatCost } from "./Settings";
+import { formatCost, getSettings } from "./Settings";
 
 interface Filters {
   token_id: string;
@@ -24,9 +24,11 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
   useEffect(() => {
     if (!selected) return;
     const handler = (e: MouseEvent) => {
-      if (detailRef.current && !detailRef.current.contains(e.target as Node)) {
-        setSelected(null);
-      }
+      const target = e.target as Node;
+      if (detailRef.current?.contains(target)) return;
+      const row = (target as Element).closest?.("tr[data-clickable]");
+      if (row) return;
+      setSelected(null);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -151,6 +153,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
               {requests.map((req) => (
                 <tr
                   key={req.id}
+                  data-clickable
                   onClick={() => loadDetail(req.id)}
                   className={`border-t cursor-pointer hover:bg-gray-50 ${selected?.id === req.id ? "bg-indigo-50" : ""}`}
                 >
@@ -217,7 +220,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
           {/* Content: side nav + detail */}
           <div className="flex-1 flex min-h-0">
             {/* Section side nav */}
-            <div className="w-28 shrink-0 border-r bg-gray-50 flex flex-col py-1 overflow-y-auto text-xs">
+            <div className="w-32 shrink-0 border-r bg-gray-50 flex flex-col py-1 overflow-y-auto text-xs">
               {/* Request / Response toggle */}
               <div className="flex border-b mb-1">
                 <button onClick={() => { setActiveTab("request"); setActiveSection("headers"); }} className={`flex-1 py-1.5 text-center font-medium ${activeTab === "request" ? "text-indigo-600 border-b-2 border-indigo-600" : "text-gray-400"}`}>Req</button>
@@ -313,7 +316,7 @@ function SectionNavItem({ id, label, active, onClick }: { id: string; label: str
   return (
     <button
       onClick={() => onClick(id)}
-      className={`text-left px-3 py-1.5 text-xs truncate ${active === id ? "bg-white text-indigo-600 font-medium border-r-2 border-indigo-600" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}
+      className={`text-left px-3 py-1.5 text-xs ${active === id ? "bg-white text-indigo-600 font-medium border-r-2 border-indigo-600" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}
     >
       {label}
     </button>
@@ -350,10 +353,12 @@ function TokenUsageBar({ input, output, cacheRead = 0, cacheWrite = 0 }: { input
 
 function MessageList({ messages }: { messages?: any[] }) {
   if (!messages || messages.length === 0) return <div className="text-gray-400 italic">No messages</div>;
+  const reverse = getSettings().reverseMessages;
+  const ordered = reverse ? [...messages].map((msg, i) => ({ msg, i })).reverse() : messages.map((msg, i) => ({ msg, i }));
 
   return (
     <div className="space-y-1">
-      {messages.map((msg, i) => (
+      {ordered.map(({ msg, i }) => (
         <MessageItem key={i} msg={msg} index={i} />
       ))}
     </div>
