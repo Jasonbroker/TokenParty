@@ -86,9 +86,11 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
 
   const loadDetail = async (id: string) => {
     const detail = mode === "admin" ? await api.getRequestDetail(id) : await api.getUserRequestDetail(id);
+    if (!selected) {
+      setActiveTab("request");
+      setActiveSection("headers");
+    }
     setSelected(detail);
-    setActiveTab("request");
-    setActiveSection("headers");
     window.dispatchEvent(new CustomEvent("collapse-nav"));
   };
 
