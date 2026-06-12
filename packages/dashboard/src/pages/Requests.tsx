@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { formatCost, getSettings } from "./Settings";
+import { getAdapterForAgent } from "../lib/agent-adapters";
+import type { RequestContext } from "../lib/agent-adapters/types";
 
 interface Filters {
   token_id: string;
@@ -8,9 +10,12 @@ interface Filters {
   model: string;
   status: string;
   tags: string;
+  agent: string;
 }
 
-const emptyFilters: Filters = { token_id: "", provider_id: "", model: "", status: "", tags: "" };
+const emptyFilters: Filters = { token_id: "", provider_id: "", model: "", status: "", tags: "", agent: "" };
+
+const KNOWN_AGENTS = ["claude-code", "codex", "openclaw"];
 
 export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }) {
   const [requests, setRequests] = useState<any[]>([]);
@@ -33,6 +38,22 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA") return;
+      e.preventDefault();
+      const idx = requests.findIndex((r) => r.id === selected.id);
+      if (idx === -1) return;
+      const next = e.key === "ArrowUp" ? idx - 1 : idx + 1;
+      if (next >= 0 && next < requests.length) loadDetail(requests[next].id);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [selected, requests]);
   const [keyNames, setKeyNames] = useState<Record<string, string>>({});
   const [keys, setKeys] = useState<{ key: string; name: string }[]>([]);
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
@@ -63,6 +84,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
     if (filters.model) params.model = filters.model;
     if (filters.status) params.status = filters.status;
     if (filters.tags) params.tags = filters.tags;
+    if (filters.agent) params.agent = filters.agent;
     if (mode === "admin") {
       if (filters.token_id) params.token_id = filters.token_id;
       api.getRequests(params).then((res) => {
@@ -96,6 +118,18 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
 
   const reqLog = selected?.logs?.find((l: any) => l.type === "request");
   const resLog = selected?.logs?.find((l: any) => l.type === "response");
+  const adapter = selected ? getAdapterForAgent(selected.agent) : null;
+  const adapterCtx: RequestContext | null = selected ? {
+    cost: selected.cost ?? 0,
+    latencyMs: selected.latency_ms ?? 0,
+    inputTokens: selected.input_tokens ?? 0,
+    outputTokens: selected.output_tokens ?? 0,
+    cacheReadTokens: selected.cache_read_tokens ?? 0,
+    cacheWriteTokens: selected.cache_write_tokens ?? 0,
+    model: selected.model ?? "",
+    status: selected.status ?? 0,
+    error: selected.error,
+  } : null;
 
   return (
     <div className="h-full relative">
@@ -124,6 +158,10 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
             <option value="ok">Success</option>
             <option value="error">Error</option>
           </select>
+          <select value={filters.agent} onChange={(e) => updateFilter({ agent: e.target.value })} className="border rounded px-2 py-1.5 text-sm">
+            <option value="">All Agents</option>
+            {KNOWN_AGENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
           <input
             type="text"
             placeholder="Tags (comma separated)"
@@ -148,6 +186,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
                 <th className="px-3 py-2 text-right">Cost</th>
                 <th className="px-3 py-2 text-right">Latency</th>
                 <th className="px-3 py-2 text-center">Status</th>
+                <th className="px-3 py-2 text-left">Agent</th>
                 <th className="px-3 py-2 text-left">Tags</th>
               </tr>
             </thead>
@@ -170,7 +209,8 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
                       {req.status}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 max-w-[150px] truncate">{req.custom_tags || ""}</td>
+                  <td className="px-3 py-2 text-xs"><AgentBadge agent={req.agent} /></td>
+                  <td className="px-3 py-2 text-xs text-gray-500 max-w-[200px]"><TagsCell value={req.custom_tags} /></td>
                 </tr>
               ))}
             </tbody>
@@ -207,6 +247,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200"><span className="text-gray-400">Entry</span> {reqLog?.headers?.["x-entry-protocol"] ?? "-"}</span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200"><span className="text-gray-400">Cost</span> {selected.cost > 0 ? formatCost(selected.cost) : "-"}</span>
               {resLog?.streaming && <span className="px-2 py-0.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700">SSE</span>}
+              {adapter && reqLog && adapter.renderMetaChips(reqLog)}
             </div>
             {/* Token bar */}
             {(selected.input_tokens > 0 || selected.output_tokens > 0) && (
@@ -235,6 +276,9 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
                   <SectionNavItem id="messages" label={`Messages (${reqLog.body?.messages?.length ?? 0})`} active={activeSection} onClick={setActiveSection} />
                   {reqLog.body?.system && <SectionNavItem id="system" label="System" active={activeSection} onClick={setActiveSection} />}
                   {reqLog.body?.tools && <SectionNavItem id="tools" label={`Tools (${reqLog.body.tools.length})`} active={activeSection} onClick={setActiveSection} />}
+                  {adapter && adapterCtx && adapter.getRequestSections(reqLog, resLog, adapterCtx).map((s) => (
+                    <SectionNavItem key={s.id} id={s.id} label={s.label} active={activeSection} onClick={setActiveSection} />
+                  ))}
                   <SectionNavItem id="raw" label="Raw JSON" active={activeSection} onClick={setActiveSection} />
                 </>
               )}
@@ -268,6 +312,7 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
                     </div>
                   )}
                   {activeSection === "tools" && reqLog.body?.tools && <ToolList tools={reqLog.body.tools} />}
+                  {adapter && adapterCtx && adapter.renderSection(activeSection, reqLog, resLog, adapterCtx)}
                   {activeSection === "raw" && <CopyableJSON data={reqLog.body} />}
                 </>
               )}
@@ -801,6 +846,28 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
       {open && <div className="ml-4">{children}</div>}
     </div>
   );
+}
+
+// --- Tags Cell ---
+
+const AGENT_COLORS: Record<string, string> = {
+  "claude-code": "bg-orange-100 text-orange-700",
+  codex: "bg-blue-100 text-blue-700",
+  openclaw: "bg-purple-100 text-purple-700",
+};
+
+function AgentBadge({ agent }: { agent?: string }) {
+  if (!agent) return null;
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${AGENT_COLORS[agent] ?? "bg-gray-100 text-gray-600"}`}>
+      {agent}
+    </span>
+  );
+}
+
+function TagsCell({ value }: { value?: string }) {
+  if (!value) return null;
+  return <span className="truncate">{value}</span>;
 }
 
 // --- Headers Table ---
