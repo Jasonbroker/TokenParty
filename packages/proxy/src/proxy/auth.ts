@@ -6,10 +6,10 @@ import type { AppEnv } from "../types/env.js";
 export async function authMiddleware(c: Context<AppEnv>, next: Next) {
   const config = getConfig();
   const authHeader = c.req.header("Authorization") ?? "";
-  const key = authHeader.replace(/^Bearer\s+/i, "");
+  const key = authHeader.replace(/^Bearer\s+/i, "") || c.req.header("x-api-key") || "";
 
   if (!key) {
-    return c.json({ error: "Missing Authorization header" }, 401);
+    return c.json({ error: "Missing Authorization or x-api-key header" }, 401);
   }
 
   const token = config.tokens.find((t) => t.key === key && t.enabled);
