@@ -299,6 +299,20 @@ export default function Requests({ mode = "admin" }: { mode?: "admin" | "user" }
             {(selected.input_tokens > 0 || selected.output_tokens > 0) && (
               <TokenUsageBar input={selected.input_tokens} output={selected.output_tokens} cacheRead={selected.cache_read_tokens ?? 0} cacheWrite={selected.cache_write_tokens ?? 0} />
             )}
+            {/* Route trace */}
+            <RouteTrace trace={selected.route_trace} />
+            {/* Copy cURL */}
+            {reqLog && (
+              <button
+                onClick={() => {
+                  const curl = buildCurl(reqLog);
+                  navigator.clipboard.writeText(curl);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 w-fit"
+              >
+                Copy cURL
+              </button>
+            )}
           </div>
 
           {/* Error banner */}
@@ -444,6 +458,57 @@ function TabButton({ id, label, active, onClick }: { id: string; label: string; 
     >
       {label}
     </button>
+  );
+}
+
+function buildCurl(reqLog: any): string {
+  const url = reqLog.headers?.["x-target-url"] ?? "";
+  const skipHeaders = new Set(["x-target-url", "x-entry-protocol", "x-provider-type", "x-api-key-index", "x-api-key-used", "x-method", "x-path", "host", "connection", "content-length", "accept-encoding"]);
+  const parts = ["curl -X POST", `'${url}'`];
+  if (reqLog.headers) {
+    for (const [k, v] of Object.entries(reqLog.headers)) {
+      if (skipHeaders.has(k.toLowerCase())) continue;
+      parts.push(`-H '${k}: ${v}'`);
+    }
+  }
+  if (reqLog.body) {
+    parts.push(`-d '${JSON.stringify(reqLog.body)}'`);
+  }
+  return parts.join(" \\\n  ");
+}
+
+function RouteTrace({ trace }: { trace?: string }) {
+  if (!trace) return null;
+  let nodes: { provider: string; status: number | null; latencyMs: number; reason?: string }[];
+  try {
+    nodes = JSON.parse(trace);
+  } catch {
+    return null;
+  }
+  if (!nodes || nodes.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1 text-xs overflow-x-auto">
+      <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 shrink-0">Client</span>
+      {nodes.map((node, i) => {
+        const isLast = i === nodes.length - 1;
+        const ok = node.status !== null && node.status >= 200 && node.status < 400;
+        const color = ok
+          ? "bg-green-50 border-green-200 text-green-700"
+          : "bg-red-50 border-red-200 text-red-700";
+        return (
+          <div key={i} className="flex items-center gap-1 shrink-0">
+            <span className="text-gray-300">&rarr;</span>
+            <span className={`px-1.5 py-0.5 rounded border ${color}`}>
+              {node.provider}
+              {node.status !== null ? ` ${node.status}` : ""}
+              {node.reason ? ` (${node.reason})` : ""}
+              {isLast && node.latencyMs > 0 ? ` ${node.latencyMs}ms` : ""}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

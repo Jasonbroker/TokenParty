@@ -100,6 +100,9 @@ function runMigrations(db: Database.Database) {
   if (!colNames.has("agent")) {
     db.exec(`ALTER TABLE request_index ADD COLUMN agent TEXT DEFAULT ''`);
   }
+  if (!colNames.has("route_trace")) {
+    db.exec(`ALTER TABLE request_index ADD COLUMN route_trace TEXT DEFAULT ''`);
+  }
 
   const dailyCols = db.prepare(`PRAGMA table_info(usage_daily)`).all() as { name: string }[];
   const dailyColNames = new Set(dailyCols.map((c) => c.name));

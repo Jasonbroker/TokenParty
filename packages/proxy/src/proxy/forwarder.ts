@@ -31,14 +31,18 @@ function maskApiKey(key: string): string {
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
 
+export type RouteTraceEntry = { provider: string; status: number | null; latencyMs: number; reason?: string };
+
 export async function forwardRequest(
   c: Context<AppEnv>,
   provider: Provider,
   targetPath: string,
   transformedBody?: unknown,
   entryProtocol?: EntryProtocol,
-  pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number }
+  pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number },
+  _routeTrace?: RouteTraceEntry[],
 ): Promise<Response> {
+  const routeTrace = _routeTrace ?? [];
   const requestId = nanoid();
   const startTime = Date.now();
 
@@ -101,7 +105,8 @@ export async function forwardRequest(
   try {
     // Same protocol streaming: use http.request for raw passthrough (no auto-decompression)
     if (isStreaming && !needsStreamConversion) {
-      return await rawStreamPassthrough(c, targetUrl, upstreamHeaders, body, requestId, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags);
+      routeTrace.push({ provider: provider.id, status: 200, latencyMs: 0 });
+      return await rawStreamPassthrough(c, targetUrl, upstreamHeaders, body, requestId, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace);
     }
 
     const response = await fetch(targetUrl, {
@@ -210,6 +215,7 @@ export async function forwardRequest(
             body: rawEvents,
             usage,
           });
+          routeTrace.push({ provider: provider.id, status: response.status, latencyMs: Date.now() - startTime });
           recordRequest({
             id: requestId,
             tokenId: token.key,
@@ -226,7 +232,8 @@ export async function forwardRequest(
             pricing,
             currency: provider.currency,
             agent,
-      customTags,
+            customTags,
+            routeTrace,
           });
         }
       });
@@ -243,6 +250,33 @@ export async function forwardRequest(
       usage,
     });
 
+    if ((response.status === 429 || response.status >= 500) && provider.fallback) {
+      const reason = response.status === 429 ? "rate_limited" : `http_${response.status}`;
+      routeTrace.push({ provider: provider.id, status: response.status, latencyMs, reason });
+      recordRequest({
+        id: requestId,
+        tokenId: token.key,
+        providerId: provider.id,
+        model,
+        inputTokens: usage?.input_tokens ?? 0,
+        outputTokens: usage?.output_tokens ?? 0,
+        cacheReadTokens: usage?.cache_read_tokens ?? 0,
+        cacheWriteTokens: usage?.cache_write_tokens ?? 0,
+        latencyMs,
+        status: response.status,
+        logFile,
+        apiKeyIndex,
+        pricing,
+        currency: provider.currency,
+        agent,
+        customTags,
+        routeTrace,
+      });
+      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, routeTrace);
+      if (fallbackResult) return fallbackResult;
+    }
+
+    routeTrace.push({ provider: provider.id, status: response.status, latencyMs });
     recordRequest({
       id: requestId,
       tokenId: token.key,
@@ -260,12 +294,8 @@ export async function forwardRequest(
       currency: provider.currency,
       agent,
       customTags,
+      routeTrace,
     });
-
-    if (response.status >= 500 && provider.fallback) {
-      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, requestId);
-      if (fallbackResult) return fallbackResult;
-    }
 
     return c.json(responseBody, response.status as any);
   } catch (error: any) {
@@ -275,6 +305,32 @@ export async function forwardRequest(
       timestamp: Date.now(),
       error: error.message,
     });
+
+    routeTrace.push({ provider: provider.id, status: null, latencyMs, reason: "network_error" });
+
+    if (provider.fallback) {
+      recordRequest({
+        id: requestId,
+        tokenId: token.key,
+        providerId: provider.id,
+        model,
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs,
+        status: 502,
+        logFile,
+        error: error.message,
+        apiKeyIndex,
+        pricing,
+        currency: provider.currency,
+        agent,
+        customTags,
+        routeTrace,
+      });
+      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, routeTrace);
+      if (fallbackResult) return fallbackResult;
+    }
+
     recordRequest({
       id: requestId,
       tokenId: token.key,
@@ -291,12 +347,8 @@ export async function forwardRequest(
       currency: provider.currency,
       agent,
       customTags,
+      routeTrace,
     });
-
-    if (provider.fallback) {
-      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, requestId);
-      if (fallbackResult) return fallbackResult;
-    }
 
     return c.json({ error: "Upstream request failed", detail: error.message }, 502);
   }
@@ -309,7 +361,7 @@ function tryFallback(
   targetPath: string,
   body: any,
   entryProtocol?: EntryProtocol,
-  originalRequestId?: string,
+  routeTrace?: RouteTraceEntry[],
 ): Promise<Response> | null {
   if (!provider.fallback) return null;
   const config = getConfig();
@@ -328,7 +380,7 @@ function tryFallback(
   }
 
   console.log(`[tokenparty] Falling back from ${provider.id} to ${fallbackProvider.id} for model ${model}`);
-  return forwardRequest(c, fallbackProvider, fallbackPath, body, entryProtocol, fallbackPricing);
+  return forwardRequest(c, fallbackProvider, fallbackPath, body, entryProtocol, fallbackPricing, routeTrace);
 }
 
 function rawStreamPassthrough(
@@ -346,6 +398,7 @@ function rawStreamPassthrough(
   pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number },
   agent?: string,
   customTags?: string,
+  routeTrace?: RouteTraceEntry[],
 ): Promise<Response> {
   const url = new URL(targetUrl);
   const reqFn = url.protocol === "https:" ? httpsRequest : httpRequest;
@@ -376,7 +429,7 @@ function rawStreamPassthrough(
         },
         flush(callback) {
           // Async parse for logging after stream ends
-          asyncParseBufferForLog(rawChunks, res.headers["content-encoding"] as string | undefined, requestId, respHeaders, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags);
+          asyncParseBufferForLog(rawChunks, res.headers["content-encoding"] as string | undefined, requestId, respHeaders, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace);
           callback();
         },
       });
@@ -405,6 +458,7 @@ function asyncParseBufferForLog(
   pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number },
   agent?: string,
   customTags?: string,
+  routeTrace?: RouteTraceEntry[],
 ) {
   (async () => {
     let text: string;
@@ -487,6 +541,7 @@ function asyncParseBufferForLog(
       currency: provider.currency,
       agent,
       customTags,
+      routeTrace,
     });
   })().catch((e) => console.error(`[tokenparty] async log parse error for ${requestId}:`, e));
 }

@@ -18,6 +18,7 @@ export interface RequestRecord {
   currency?: string;
   agent?: string;
   customTags?: string;
+  routeTrace?: { provider: string; status: number | null; latencyMs: number; reason?: string }[];
 }
 
 export function calculateCost(
@@ -49,12 +50,13 @@ export function recordRequest(record: RequestRecord) {
   const customTags = record.customTags ?? "";
 
   db.prepare(`
-    INSERT INTO request_index (id, timestamp, token_id, provider_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, latency_ms, status, log_file, error, api_key_index, cost, agent, custom_tags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO request_index (id, timestamp, token_id, provider_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, latency_ms, status, log_file, error, api_key_index, cost, agent, custom_tags, route_trace)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     record.id, now, record.tokenId, record.providerId, record.model,
     record.inputTokens, record.outputTokens, cacheReadTokens, cacheWriteTokens, record.latencyMs,
-    record.status, record.logFile, record.error ?? null, record.apiKeyIndex ?? 0, cost, agent, customTags
+    record.status, record.logFile, record.error ?? null, record.apiKeyIndex ?? 0, cost, agent, customTags,
+    record.routeTrace ? JSON.stringify(record.routeTrace) : ""
   );
 
   db.prepare(`
