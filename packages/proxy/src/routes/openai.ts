@@ -48,6 +48,10 @@ openaiRoutes.all("/*", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const model = body.model ?? "";
 
+  if (!model) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
   const result = resolveProvider(model, token);
   if ("error" in result) {
     return c.json({ error: result.error }, 400);

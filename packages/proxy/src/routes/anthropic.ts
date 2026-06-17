@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { authMiddleware } from "../proxy/auth.js";
 import { forwardRequest } from "../proxy/forwarder.js";
 import { resolveProvider, listAvailableModels } from "../proxy/router.js";
@@ -9,7 +9,7 @@ export const anthropicRoutes = new Hono<AppEnv>();
 
 anthropicRoutes.use("/*", authMiddleware);
 
-anthropicRoutes.get("/v1/models", (c) => {
+const handleAnthropicModels = (c: Context<AppEnv>) => {
   const token = c.get("authToken");
   const models = listAvailableModels(token);
   const data = models.map((id) => ({
@@ -24,7 +24,10 @@ anthropicRoutes.get("/v1/models", (c) => {
     first_id: data[0]?.id ?? null,
     last_id: data[data.length - 1]?.id ?? null,
   });
-});
+};
+
+anthropicRoutes.get("/v1/models", handleAnthropicModels);
+anthropicRoutes.get("/models", handleAnthropicModels);
 
 anthropicRoutes.post("/v1/messages", async (c) => {
   const token = c.get("authToken");
@@ -50,6 +53,10 @@ anthropicRoutes.all("/*", async (c) => {
   const token = c.get("authToken");
   const body = await c.req.json().catch(() => ({}));
   const model = body.model ?? "";
+
+  if (!model) {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   const result = resolveProvider(model, token);
   if ("error" in result) {
