@@ -12,6 +12,7 @@ export interface LogEntry {
   streamContent?: string;
   usage?: { input_tokens: number; output_tokens: number };
   error?: string;
+  status?: number;
 }
 
 export function writeLog(requestId: string, entry: LogEntry): string {

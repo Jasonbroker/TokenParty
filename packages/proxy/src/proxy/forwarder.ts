@@ -209,6 +209,7 @@ export async function forwardRequest(
             streamContent: fullContent,
             body: rawEvents,
             usage,
+            status: response.status,
           });
           routeTrace.push({ provider: provider.id, status: response.status, latencyMs: Date.now() - startTime });
           recordRequest({
@@ -243,6 +244,7 @@ export async function forwardRequest(
       headers: respHeaders,
       body: responseBody,
       usage,
+      status: response.status,
     });
 
     if ((response.status === 429 || response.status >= 500) && provider.fallback) {
@@ -424,7 +426,7 @@ function rawStreamPassthrough(
         },
         flush(callback) {
           // Async parse for logging after stream ends
-          asyncParseBufferForLog(rawChunks, res.headers["content-encoding"] as string | undefined, requestId, respHeaders, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace);
+          asyncParseBufferForLog(rawChunks, res.headers["content-encoding"] as string | undefined, requestId, respHeaders, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace, status);
           callback();
         },
       });
@@ -454,6 +456,7 @@ function asyncParseBufferForLog(
   agent?: string,
   customTags?: string,
   routeTrace?: RouteTraceEntry[],
+  upstreamStatus?: number,
 ) {
   (async () => {
     let text: string;
@@ -473,40 +476,57 @@ function asyncParseBufferForLog(
       text = combined.toString("utf-8");
     }
 
+    const contentType = respHeaders["content-type"] ?? "";
+    const isSse = contentType.includes("text/event-stream");
+    const recordedStatus = upstreamStatus ?? 200;
+
     let fullContent = "";
     let rawEvents: any[] = [];
     let usage: { input_tokens: number; output_tokens: number; cache_read_tokens?: number; cache_write_tokens?: number } | undefined;
+    let responseBody: unknown;
 
-    for (const line of text.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (data === "[DONE]") continue;
+    if (isSse) {
+      for (const line of text.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(data);
+          rawEvents.push(parsed);
+          if (provider.type === "anthropic" && parsed.type === "content_block_delta") {
+            if (parsed.delta?.text) fullContent += parsed.delta.text;
+            if (parsed.delta?.thinking) fullContent += parsed.delta.thinking;
+          } else if (provider.type === "openai" && parsed.choices?.[0]?.delta?.content) {
+            fullContent += parsed.choices[0].delta.content;
+          } else if (parsed.type === "response.output_text.delta" && parsed.delta) {
+            fullContent += parsed.delta;
+          }
+          usage = extractUsageFromChunk(parsed, provider.type) ?? usage;
+        } catch {}
+      }
+
+      if (!usage) {
+        for (let i = rawEvents.length - 1; i >= 0; i--) {
+          const evt = rawEvents[i];
+          if (evt.type === "response.completed" && evt.response?.usage) {
+            usage = { input_tokens: evt.response.usage.input_tokens ?? 0, output_tokens: evt.response.usage.output_tokens ?? 0, cache_read_tokens: evt.response.usage.cache_read_input_tokens ?? 0, cache_write_tokens: evt.response.usage.cache_creation_input_tokens ?? 0 };
+            break;
+          }
+          if (evt.usage && typeof evt.usage === "object" && (evt.usage.prompt_tokens || evt.usage.completion_tokens || evt.usage.input_tokens || evt.usage.output_tokens || evt.usage.total_tokens)) {
+            usage = { input_tokens: evt.usage.prompt_tokens ?? evt.usage.input_tokens ?? 0, output_tokens: evt.usage.completion_tokens ?? evt.usage.output_tokens ?? 0, cache_read_tokens: evt.usage.prompt_tokens_details?.cached_tokens ?? evt.usage.cache_read_input_tokens ?? 0, cache_write_tokens: evt.usage.cache_creation_input_tokens ?? 0 };
+            break;
+          }
+        }
+      }
+      responseBody = rawEvents;
+    } else {
+      // Upstream returned a non-SSE body (e.g. JSON error) despite stream:true request.
+      // Record the raw decoded text faithfully.
       try {
-        const parsed = JSON.parse(data);
-        rawEvents.push(parsed);
-        if (provider.type === "anthropic" && parsed.type === "content_block_delta") {
-          if (parsed.delta?.text) fullContent += parsed.delta.text;
-          if (parsed.delta?.thinking) fullContent += parsed.delta.thinking;
-        } else if (provider.type === "openai" && parsed.choices?.[0]?.delta?.content) {
-          fullContent += parsed.choices[0].delta.content;
-        } else if (parsed.type === "response.output_text.delta" && parsed.delta) {
-          fullContent += parsed.delta;
-        }
-        usage = extractUsageFromChunk(parsed, provider.type) ?? usage;
-      } catch {}
-    }
-
-    if (!usage) {
-      for (let i = rawEvents.length - 1; i >= 0; i--) {
-        const evt = rawEvents[i];
-        if (evt.type === "response.completed" && evt.response?.usage) {
-          usage = { input_tokens: evt.response.usage.input_tokens ?? 0, output_tokens: evt.response.usage.output_tokens ?? 0, cache_read_tokens: evt.response.usage.cache_read_input_tokens ?? 0, cache_write_tokens: evt.response.usage.cache_creation_input_tokens ?? 0 };
-          break;
-        }
-        if (evt.usage && typeof evt.usage === "object" && (evt.usage.prompt_tokens || evt.usage.completion_tokens || evt.usage.input_tokens || evt.usage.output_tokens || evt.usage.total_tokens)) {
-          usage = { input_tokens: evt.usage.prompt_tokens ?? evt.usage.input_tokens ?? 0, output_tokens: evt.usage.completion_tokens ?? evt.usage.output_tokens ?? 0, cache_read_tokens: evt.usage.prompt_tokens_details?.cached_tokens ?? evt.usage.cache_read_input_tokens ?? 0, cache_write_tokens: evt.usage.cache_creation_input_tokens ?? 0 };
-          break;
-        }
+        responseBody = JSON.parse(text);
+        usage = extractUsage(responseBody, provider.type);
+      } catch {
+        responseBody = text;
       }
     }
 
@@ -514,10 +534,11 @@ function asyncParseBufferForLog(
       type: "response",
       timestamp: Date.now(),
       headers: respHeaders,
-      streaming: true,
-      streamContent: fullContent,
-      body: rawEvents,
+      streaming: isSse,
+      streamContent: isSse ? fullContent : undefined,
+      body: responseBody,
       usage,
+      status: recordedStatus,
     });
     recordRequest({
       id: requestId,
@@ -529,7 +550,7 @@ function asyncParseBufferForLog(
       cacheReadTokens: usage?.cache_read_tokens ?? 0,
       cacheWriteTokens: usage?.cache_write_tokens ?? 0,
       latencyMs: Date.now() - startTime,
-      status: 200,
+      status: recordedStatus,
       logFile,
       apiKeyIndex,
       pricing,
