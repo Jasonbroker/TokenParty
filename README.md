@@ -253,6 +253,7 @@ TokenParty/
 - [x] Provider fallback / retry
 - [x] Log storage management
 - [x] Multi-agent detection & per-agent detail panel (Claude Code, OpenClaw)
+- [x] Model-level priority with ordered fallback chain across providers
 - [ ] Automatic prompt cache optimization (Anthropic cache_control injection)
 - [ ] Cost savings report ("TokenParty saved you $XX")
 - [ ] Tag-based cost analysis (cost breakdown by project/feature)

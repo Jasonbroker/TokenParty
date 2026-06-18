@@ -39,14 +39,14 @@ anthropicRoutes.post("/v1/messages", async (c) => {
     return c.json({ error: result.error }, 400);
   }
 
-  const { provider, pricing } = result;
+  const { providers } = result;
 
-  if (provider.type === "anthropic") {
-    return forwardRequest(c, provider, "/v1/messages", body, "anthropic", pricing);
+  if (providers[0].type === "anthropic") {
+    return forwardRequest(c, providers, "/v1/messages", body, "anthropic");
   }
 
   const openaiBody = anthropicToOpenai(body);
-  return forwardRequest(c, provider, "/chat/completions", openaiBody, "anthropic", pricing);
+  return forwardRequest(c, providers, "/chat/completions", openaiBody, "anthropic");
 });
 
 anthropicRoutes.all("/*", async (c) => {
@@ -63,10 +63,10 @@ anthropicRoutes.all("/*", async (c) => {
     return c.json({ error: result.error }, 400);
   }
 
-  if (result.provider.type !== "anthropic") {
+  if (result.providers[0].type !== "anthropic") {
     return c.json({ error: "This endpoint requires an Anthropic-compatible provider" }, 400);
   }
 
   const path = new URL(c.req.url).pathname.replace(/^\/anthropic/, "");
-  return forwardRequest(c, result.provider, path, body, "anthropic", result.pricing);
+  return forwardRequest(c, result.providers, path, body, "anthropic");
 });

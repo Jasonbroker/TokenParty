@@ -8,6 +8,10 @@ const ModelSchema = z.union([
     outputPrice: z.number().optional(),
     cacheReadPrice: z.number().optional(),
     cacheWritePrice: z.number().optional(),
+    // Lower number = higher priority. When multiple providers serve the same
+    // model, candidates are ordered by priority (then price). On 429/5xx/
+    // network error the next candidate is tried automatically.
+    priority: z.number().optional(),
   }),
 ]);
 
@@ -57,4 +61,12 @@ export function getModelPricing(model: ModelConfig): { inputPrice?: number; outp
   if (typeof model === "string") return undefined;
   if (model.inputPrice === undefined && model.outputPrice === undefined && model.cacheReadPrice === undefined && model.cacheWritePrice === undefined) return undefined;
   return { inputPrice: model.inputPrice, outputPrice: model.outputPrice, cacheReadPrice: model.cacheReadPrice, cacheWritePrice: model.cacheWritePrice };
+}
+
+// Returns the model priority. Lower number = higher priority. Unset (or bare
+// string model) returns Infinity so it sorts after any explicitly-prioritized
+// candidate. Router uses this as the primary sort key.
+export function getModelPriority(model: ModelConfig): number {
+  if (typeof model === "object" && model.priority !== undefined) return model.priority;
+  return Infinity;
 }

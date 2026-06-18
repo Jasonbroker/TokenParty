@@ -33,14 +33,14 @@ openaiRoutes.post("/chat/completions", async (c) => {
     return c.json({ error: result.error }, 400);
   }
 
-  const { provider, pricing } = result;
+  const { providers } = result;
 
-  if (provider.type === "openai") {
-    return forwardRequest(c, provider, "/chat/completions", body, "openai", pricing);
+  if (providers[0].type === "openai") {
+    return forwardRequest(c, providers, "/chat/completions", body, "openai");
   }
 
   const anthropicBody = openaiToAnthropic(body);
-  return forwardRequest(c, provider, "/v1/messages", anthropicBody, "openai", pricing);
+  return forwardRequest(c, providers, "/v1/messages", anthropicBody, "openai");
 });
 
 openaiRoutes.all("/*", async (c) => {
@@ -57,10 +57,10 @@ openaiRoutes.all("/*", async (c) => {
     return c.json({ error: result.error }, 400);
   }
 
-  if (result.provider.type !== "openai") {
+  if (result.providers[0].type !== "openai") {
     return c.json({ error: "This endpoint requires an OpenAI-compatible provider" }, 400);
   }
 
   const path = new URL(c.req.url).pathname.replace(/^\/v1/, "");
-  return forwardRequest(c, result.provider, path, body, "openai", result.pricing);
+  return forwardRequest(c, result.providers, path, body, "openai");
 });

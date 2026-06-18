@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
-type ModelConfig = string | { id: string; inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number };
+type ModelConfig = string | { id: string; inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number; priority?: number };
 
 interface Provider {
   id: string;
@@ -22,7 +22,8 @@ function getModelId(m: ModelConfig): string {
 function normalizeModels(models: ModelConfig[]): ModelConfig[] {
   return models.map((m) => {
     if (typeof m === "string") return m;
-    if (m.inputPrice === undefined && m.outputPrice === undefined && m.cacheReadPrice === undefined && m.cacheWritePrice === undefined) return m.id;
+    // Keep as object if any field is set (price or priority)
+    if (m.inputPrice === undefined && m.outputPrice === undefined && m.cacheReadPrice === undefined && m.cacheWritePrice === undefined && m.priority === undefined) return m.id;
     return m;
   });
 }
@@ -368,7 +369,15 @@ export default function Providers() {
                           />
                           <button onClick={() => removeModel(i)} className="text-red-500 hover:text-red-700 px-2 py-1.5 text-sm">×</button>
                         </div>
-                        <div className="grid grid-cols-4 gap-1.5">
+                        <div className="grid grid-cols-5 gap-1.5">
+                          <input
+                            type="number"
+                            value={typeof m === "object" ? (m.priority ?? "") : ""}
+                            onChange={(e) => updateModel(i, "priority", e.target.value ? Number(e.target.value) : undefined)}
+                            placeholder="Prio"
+                            title="Priority (lower = higher priority, for multi-provider same-model fallback chain)"
+                            className="border rounded px-2 py-1 text-xs"
+                          />
                           <input
                             type="number"
                             value={typeof m === "object" ? (m.inputPrice ?? "") : ""}
@@ -406,7 +415,7 @@ export default function Providers() {
                     );
                   })}
                   <button onClick={addModel} type="button" className="text-sm text-indigo-600 hover:underline">+ Add model</button>
-                  <div className="text-xs text-gray-400">Prices per 1M tokens (optional). Unconfigured = free, routed with highest priority.</div>
+                  <div className="text-xs text-gray-400">Priority: lower number = higher priority. When multiple providers serve the same model, they are ordered by priority (then price). On 429/5xx/network error, the next provider is tried automatically. Prices per 1M tokens (optional).</div>
                 </div>
               </div>
             </div>

@@ -33,13 +33,21 @@ function maskApiKey(key: string): string {
 
 export type RouteTraceEntry = { provider: string; status: number | null; latencyMs: number; reason?: string };
 
+// Attempt result discriminated union for the candidate chain loop
+type AttemptResult =
+  | { kind: "done"; response: Response }
+  | { kind: "retryable"; status: number; error?: string };
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 export async function forwardRequest(
   c: Context<AppEnv>,
-  provider: Provider,
+  candidateProviders: Provider[],
   targetPath: string,
   transformedBody?: unknown,
   entryProtocol?: EntryProtocol,
-  pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number },
   _routeTrace?: RouteTraceEntry[],
 ): Promise<Response> {
   const routeTrace = _routeTrace ?? [];
@@ -49,34 +57,9 @@ export async function forwardRequest(
   const body = transformedBody ?? (await c.req.json());
   const isStreaming = body?.stream === true;
   const model = body?.model ?? "unknown";
-  const entry = entryProtocol ?? provider.type;
-  const needsStreamConversion = isStreaming && entry !== provider.type;
+  const entry = entryProtocol ?? candidateProviders[0].type;
 
   const isResponsesApi = !!body?.input && !body?.messages;
-
-  // Request usage in streaming for OpenAI chat completions (not responses API)
-  if (isStreaming && provider.type === "openai" && !isResponsesApi && !body.stream_options) {
-    body.stream_options = { include_usage: true };
-  }
-
-  const targetUrl = `${provider.baseUrl}${targetPath}`;
-  const { key: selectedKey, index: apiKeyIndex } = selectApiKey(provider);
-
-  const upstreamHeaders: Record<string, string> = {};
-  const skipHeaders = new Set(["host", "connection", "content-length"]);
-  c.req.raw.headers.forEach((value, key) => {
-    if (!skipHeaders.has(key.toLowerCase())) {
-      upstreamHeaders[key] = value;
-    }
-  });
-
-  if (provider.type === "openai") {
-    upstreamHeaders["authorization"] = `Bearer ${selectedKey}`;
-  } else if (provider.type === "anthropic") {
-    delete upstreamHeaders["authorization"];
-    upstreamHeaders["x-api-key"] = selectedKey;
-    upstreamHeaders["anthropic-version"] ??= "2023-06-01";
-  }
 
   const reqHeaders: Record<string, string> = {};
   c.req.raw.headers.forEach((value, key) => {
@@ -87,154 +70,295 @@ export async function forwardRequest(
   const agent = extractedTags.agent ?? "";
   const customTags = extractedTags.tags ?? "";
 
-  const logFile = writeLog(requestId, {
-    type: "request",
-    timestamp: startTime,
-    headers: { ...reqHeaders, "x-target-url": targetUrl, "x-entry-protocol": entry, "x-provider-type": provider.type, "x-api-key-index": String(apiKeyIndex), "x-api-key-used": maskApiKey(selectedKey) },
-    body,
-  });
-
   c.set("recorded", true);
   const token = c.get("authToken");
 
-  try {
-    // Same protocol streaming: use http.request for raw passthrough (no auto-decompression)
-    if (isStreaming && !needsStreamConversion) {
-      routeTrace.push({ provider: provider.id, status: 200, latencyMs: 0 });
-      return await rawStreamPassthrough(c, targetUrl, upstreamHeaders, body, requestId, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace);
+  const logFile = writeLog(requestId, {
+    type: "request",
+    timestamp: startTime,
+    headers: reqHeaders,
+    body,
+  });
+
+  // Loop through candidate providers (ordered by priority then price)
+  for (let i = 0; i < candidateProviders.length; i++) {
+    const provider = candidateProviders[i];
+    const providerPricing = getModelPricing(provider.models.find((m) => getModelId(m) === model)!);
+    const { key: selectedKey, index: apiKeyIndex } = selectApiKey(provider);
+
+    const targetUrl = `${provider.baseUrl}${targetPath}`;
+
+    const upstreamHeaders: Record<string, string> = {};
+    const skipHeaders = new Set(["host", "connection", "content-length"]);
+    c.req.raw.headers.forEach((value, key) => {
+      if (!skipHeaders.has(key.toLowerCase())) {
+        upstreamHeaders[key] = value;
+      }
+    });
+
+    if (provider.type === "openai") {
+      upstreamHeaders["authorization"] = `Bearer ${selectedKey}`;
+    } else if (provider.type === "anthropic") {
+      delete upstreamHeaders["authorization"];
+      upstreamHeaders["x-api-key"] = selectedKey;
+      upstreamHeaders["anthropic-version"] ??= "2023-06-01";
     }
 
+    // Request usage in streaming for OpenAI chat completions (not responses API)
+    const attemptBody = isStreaming && provider.type === "openai" && !isResponsesApi && !body.stream_options
+      ? { ...body, stream_options: { include_usage: true } }
+      : body;
+
+    const attemptResult = await attemptProvider({
+      provider,
+      targetUrl,
+      upstreamHeaders,
+      attemptBody,
+      isStreaming,
+      needsStreamConversion: isStreaming && entry !== provider.type,
+      entry,
+      c,
+      requestId,
+      startTime,
+      token,
+      logFile,
+      apiKeyIndex,
+      providerPricing,
+      agent,
+      customTags,
+      routeTrace,
+      model,
+    });
+
+    if (attemptResult.kind === "done") {
+      return attemptResult.response;
+    }
+
+    // Retryable error - log this attempt and try next candidate
+    const latencyMs = Date.now() - startTime;
+    const reason = attemptResult.status === 429 ? "rate_limited"
+      : attemptResult.error ? "network_error"
+      : `http_${attemptResult.status}`;
+
+    routeTrace.push({ provider: provider.id, status: attemptResult.status, latencyMs, reason });
+    recordRequest({
+      id: requestId,
+      tokenId: token.key,
+      providerId: provider.id,
+      model,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      latencyMs,
+      status: attemptResult.status,
+      logFile,
+      error: attemptResult.error,
+      apiKeyIndex,
+      pricing: providerPricing,
+      currency: provider.currency,
+      agent,
+      customTags,
+      routeTrace,
+    });
+
+    if (i < candidateProviders.length - 1) {
+      console.log(`[tokenparty] Falling back from ${provider.id} to ${candidateProviders[i + 1].id} for model ${model} (${reason})`);
+    }
+  }
+
+  // All candidates exhausted - return last retryable error as 502
+  return c.json({ error: "All provider candidates failed" }, 502);
+}
+
+interface AttemptParams {
+  provider: Provider;
+  targetUrl: string;
+  upstreamHeaders: Record<string, string>;
+  attemptBody: any;
+  isStreaming: boolean;
+  needsStreamConversion: boolean;
+  entry: EntryProtocol;
+  c: Context<AppEnv>;
+  requestId: string;
+  startTime: number;
+  token: { key: string };
+  logFile: string;
+  apiKeyIndex: number;
+  providerPricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number };
+  agent: string;
+  customTags: string;
+  routeTrace: RouteTraceEntry[];
+  model: string;
+}
+
+async function attemptProvider(params: AttemptParams): Promise<AttemptResult> {
+  const {
+    provider, targetUrl, upstreamHeaders, attemptBody, isStreaming, needsStreamConversion,
+    entry, c, requestId, startTime, token, logFile, apiKeyIndex, providerPricing,
+    agent, customTags, routeTrace, model,
+  } = params;
+
+  try {
+    // Same protocol streaming: use http.request for raw passthrough
+    if (isStreaming && !needsStreamConversion) {
+      const streamResult = await rawStreamPassthrough({
+        c, targetUrl, upstreamHeaders, body: attemptBody, requestId, provider,
+        model, token, startTime, logFile, apiKeyIndex, pricing: providerPricing,
+        agent, customTags, routeTrace,
+      });
+
+      if (streamResult.kind === "retryable") {
+        return streamResult;
+      }
+
+      routeTrace.push({ provider: provider.id, status: 200, latencyMs: 0 });
+      return { kind: "done", response: streamResult.response };
+    }
+
+    // Fetch path: non-streaming + cross-protocol streaming
     const response = await fetch(targetUrl, {
       method: "POST",
       headers: upstreamHeaders,
-      body: JSON.stringify(body),
+      body: JSON.stringify(attemptBody),
     });
+
+    // Check if retryable BEFORE reading/piping body
+    if (isRetryableStatus(response.status)) {
+      // Drain response to free connection
+      await response.body?.cancel();
+      return { kind: "retryable", status: response.status };
+    }
 
     const respHeaders = headersToRecord(response.headers);
     const latencyMs = Date.now() - startTime;
 
     if (isStreaming && response.ok) {
-      // Protocol conversion: decompress, parse, convert, re-emit
+      // Protocol conversion streaming
       c.header("Content-Type", "text/event-stream");
       c.header("Cache-Control", "no-cache");
       c.header("Connection", "keep-alive");
 
-      return streamSSE(c, async (s) => {
-        const reader = decompressResponse(response).getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let fullContent = "";
-        let rawEvents: any[] = [];
-        let usage: { input_tokens: number; output_tokens: number; cache_read_tokens?: number; cache_write_tokens?: number } | undefined;
-        let chunkId = `chatcmpl-${requestId}`;
-        const o2aConverter = new OpenaiToAnthropicStreamConverter();
+      return {
+        kind: "done",
+        response: streamSSE(c, async (s) => {
+          const reader = decompressResponse(response).getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let fullContent = "";
+          let rawEvents: any[] = [];
+          let usage: { input_tokens: number; output_tokens: number; cache_read_tokens?: number; cache_write_tokens?: number } | undefined;
+          let chunkId = `chatcmpl-${requestId}`;
+          const o2aConverter = new OpenaiToAnthropicStreamConverter();
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
 
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
 
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") {
-                await s.writeSSE({ data: "[DONE]" });
-                continue;
-              }
-
-              try {
-                const parsed = JSON.parse(data);
-                rawEvents.push(parsed);
-
-                if (provider.type === "anthropic" && entry === "openai") {
-                  const converted = convertAnthropicChunkToOpenai(parsed, model, chunkId);
-                  if (converted) {
-                    if (converted.content) fullContent += converted.content;
-                    await s.writeSSE({ data: JSON.stringify(converted.chunk) });
-                  }
-                  if (parsed.type === "message_start" && parsed.message?.usage) {
-                    usage = { ...(usage ?? { input_tokens: 0, output_tokens: 0 }), input_tokens: parsed.message.usage.input_tokens ?? 0, cache_read_tokens: parsed.message.usage.cache_read_input_tokens ?? 0, cache_write_tokens: parsed.message.usage.cache_creation_input_tokens ?? 0 } as any;
-                  }
-                  if (parsed.type === "message_delta" && parsed.usage) {
-                    usage = { ...(usage ?? { input_tokens: 0, output_tokens: 0 }), output_tokens: parsed.usage.output_tokens ?? 0 } as any;
-                  }
-                } else if (provider.type === "openai" && entry === "anthropic") {
-                  const converted = o2aConverter.convert(parsed, model);
-                  if (converted) {
-                    for (const event of converted.events) {
-                      await s.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
-                    }
-                    if (converted.content) fullContent += converted.content;
-                  }
-                  if (parsed.usage) {
-                    usage = { input_tokens: parsed.usage.prompt_tokens ?? 0, output_tokens: parsed.usage.completion_tokens ?? 0, cache_read_tokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0, cache_write_tokens: 0 };
-                  }
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const data = line.slice(6).trim();
+                if (data === "[DONE]") {
+                  await s.writeSSE({ data: "[DONE]" });
+                  continue;
                 }
-              } catch {}
-            }
-          }
-        } finally {
-          if (!usage) {
-            for (let i = rawEvents.length - 1; i >= 0; i--) {
-              const evt = rawEvents[i];
-              if (evt.type === "response.completed" && evt.response?.usage) {
-                usage = {
-                  input_tokens: evt.response.usage.input_tokens ?? 0,
-                  output_tokens: evt.response.usage.output_tokens ?? 0,
-                  cache_read_tokens: evt.response.usage.cache_read_input_tokens ?? 0,
-                  cache_write_tokens: evt.response.usage.cache_creation_input_tokens ?? 0,
-                };
-                break;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  rawEvents.push(parsed);
+
+                  if (provider.type === "anthropic" && entry === "openai") {
+                    const converted = convertAnthropicChunkToOpenai(parsed, model, chunkId);
+                    if (converted) {
+                      if (converted.content) fullContent += converted.content;
+                      await s.writeSSE({ data: JSON.stringify(converted.chunk) });
+                    }
+                    if (parsed.type === "message_start" && parsed.message?.usage) {
+                      usage = { ...(usage ?? { input_tokens: 0, output_tokens: 0 }), input_tokens: parsed.message.usage.input_tokens ?? 0, cache_read_tokens: parsed.message.usage.cache_read_input_tokens ?? 0, cache_write_tokens: parsed.message.usage.cache_creation_input_tokens ?? 0 } as any;
+                    }
+                    if (parsed.type === "message_delta" && parsed.usage) {
+                      usage = { ...(usage ?? { input_tokens: 0, output_tokens: 0 }), output_tokens: parsed.usage.output_tokens ?? 0 } as any;
+                    }
+                  } else if (provider.type === "openai" && entry === "anthropic") {
+                    const converted = o2aConverter.convert(parsed, model);
+                    if (converted) {
+                      for (const event of converted.events) {
+                        await s.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
+                      }
+                      if (converted.content) fullContent += converted.content;
+                    }
+                    if (parsed.usage) {
+                      usage = { input_tokens: parsed.usage.prompt_tokens ?? 0, output_tokens: parsed.usage.completion_tokens ?? 0, cache_read_tokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0, cache_write_tokens: 0 };
+                    }
+                  }
+                } catch {}
               }
-              if (evt.usage && typeof evt.usage === "object" && (evt.usage.prompt_tokens || evt.usage.completion_tokens || evt.usage.input_tokens || evt.usage.output_tokens || evt.usage.total_tokens)) {
-                usage = {
-                  input_tokens: evt.usage.prompt_tokens ?? evt.usage.input_tokens ?? 0,
-                  output_tokens: evt.usage.completion_tokens ?? evt.usage.output_tokens ?? 0,
-                  cache_read_tokens: evt.usage.prompt_tokens_details?.cached_tokens ?? evt.usage.cache_read_input_tokens ?? 0,
-                  cache_write_tokens: evt.usage.cache_creation_input_tokens ?? 0,
-                };
-                break;
+            }
+          } finally {
+            if (!usage) {
+              for (let i = rawEvents.length - 1; i >= 0; i--) {
+                const evt = rawEvents[i];
+                if (evt.type === "response.completed" && evt.response?.usage) {
+                  usage = {
+                    input_tokens: evt.response.usage.input_tokens ?? 0,
+                    output_tokens: evt.response.usage.output_tokens ?? 0,
+                    cache_read_tokens: evt.response.usage.cache_read_input_tokens ?? 0,
+                    cache_write_tokens: evt.response.usage.cache_creation_input_tokens ?? 0,
+                  };
+                  break;
+                }
+                if (evt.usage && typeof evt.usage === "object" && (evt.usage.prompt_tokens || evt.usage.completion_tokens || evt.usage.input_tokens || evt.usage.output_tokens || evt.usage.total_tokens)) {
+                  usage = {
+                    input_tokens: evt.usage.prompt_tokens ?? evt.usage.input_tokens ?? 0,
+                    output_tokens: evt.usage.completion_tokens ?? evt.usage.output_tokens ?? 0,
+                    cache_read_tokens: evt.usage.prompt_tokens_details?.cached_tokens ?? evt.usage.cache_read_input_tokens ?? 0,
+                    cache_write_tokens: evt.usage.cache_creation_input_tokens ?? 0,
+                  };
+                  break;
+                }
               }
             }
+            writeLog(requestId, {
+              type: "response",
+              timestamp: Date.now(),
+              headers: respHeaders,
+              streaming: true,
+              streamContent: fullContent,
+              body: rawEvents,
+              usage,
+              status: response.status,
+            });
+            routeTrace.push({ provider: provider.id, status: response.status, latencyMs: Date.now() - startTime });
+            recordRequest({
+              id: requestId,
+              tokenId: token.key,
+              providerId: provider.id,
+              model,
+              inputTokens: usage?.input_tokens ?? 0,
+              outputTokens: usage?.output_tokens ?? 0,
+              cacheReadTokens: usage?.cache_read_tokens ?? 0,
+              cacheWriteTokens: usage?.cache_write_tokens ?? 0,
+              latencyMs: Date.now() - startTime,
+              status: response.status,
+              logFile,
+              apiKeyIndex,
+              pricing: providerPricing,
+              currency: provider.currency,
+              agent,
+              customTags,
+              routeTrace,
+            });
           }
-          writeLog(requestId, {
-            type: "response",
-            timestamp: Date.now(),
-            headers: respHeaders,
-            streaming: true,
-            streamContent: fullContent,
-            body: rawEvents,
-            usage,
-            status: response.status,
-          });
-          routeTrace.push({ provider: provider.id, status: response.status, latencyMs: Date.now() - startTime });
-          recordRequest({
-            id: requestId,
-            tokenId: token.key,
-            providerId: provider.id,
-            model,
-            inputTokens: usage?.input_tokens ?? 0,
-            outputTokens: usage?.output_tokens ?? 0,
-            cacheReadTokens: usage?.cache_read_tokens ?? 0,
-            cacheWriteTokens: usage?.cache_write_tokens ?? 0,
-            latencyMs: Date.now() - startTime,
-            status: response.status,
-            logFile,
-            apiKeyIndex,
-            pricing,
-            currency: provider.currency,
-            agent,
-            customTags,
-            routeTrace,
-          });
-        }
-      });
+        }),
+      };
     }
 
+    // Non-streaming response
     const responseBody = await decompressJson(response);
     const usage = extractUsage(responseBody, provider.type);
 
@@ -246,32 +370,6 @@ export async function forwardRequest(
       usage,
       status: response.status,
     });
-
-    if ((response.status === 429 || response.status >= 500) && provider.fallback) {
-      const reason = response.status === 429 ? "rate_limited" : `http_${response.status}`;
-      routeTrace.push({ provider: provider.id, status: response.status, latencyMs, reason });
-      recordRequest({
-        id: requestId,
-        tokenId: token.key,
-        providerId: provider.id,
-        model,
-        inputTokens: usage?.input_tokens ?? 0,
-        outputTokens: usage?.output_tokens ?? 0,
-        cacheReadTokens: usage?.cache_read_tokens ?? 0,
-        cacheWriteTokens: usage?.cache_write_tokens ?? 0,
-        latencyMs,
-        status: response.status,
-        logFile,
-        apiKeyIndex,
-        pricing,
-        currency: provider.currency,
-        agent,
-        customTags,
-        routeTrace,
-      });
-      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, routeTrace);
-      if (fallbackResult) return fallbackResult;
-    }
 
     routeTrace.push({ provider: provider.id, status: response.status, latencyMs });
     recordRequest({
@@ -287,14 +385,14 @@ export async function forwardRequest(
       status: response.status,
       logFile,
       apiKeyIndex,
-      pricing,
+      pricing: providerPricing,
       currency: provider.currency,
       agent,
       customTags,
       routeTrace,
     });
 
-    return c.json(responseBody, response.status as any);
+    return { kind: "done", response: c.json(responseBody, response.status as any) };
   } catch (error: any) {
     const latencyMs = Date.now() - startTime;
     writeLog(requestId, {
@@ -303,110 +401,51 @@ export async function forwardRequest(
       error: error.message,
     });
 
-    routeTrace.push({ provider: provider.id, status: null, latencyMs, reason: "network_error" });
-
-    if (provider.fallback) {
-      recordRequest({
-        id: requestId,
-        tokenId: token.key,
-        providerId: provider.id,
-        model,
-        inputTokens: 0,
-        outputTokens: 0,
-        latencyMs,
-        status: 502,
-        logFile,
-        error: error.message,
-        apiKeyIndex,
-        pricing,
-        currency: provider.currency,
-        agent,
-        customTags,
-        routeTrace,
-      });
-      const fallbackResult = tryFallback(c, provider, model, targetPath, body, entryProtocol, routeTrace);
-      if (fallbackResult) return fallbackResult;
-    }
-
-    recordRequest({
-      id: requestId,
-      tokenId: token.key,
-      providerId: provider.id,
-      model,
-      inputTokens: 0,
-      outputTokens: 0,
-      latencyMs,
-      status: 502,
-      logFile,
-      error: error.message,
-      apiKeyIndex,
-      pricing,
-      currency: provider.currency,
-      agent,
-      customTags,
-      routeTrace,
-    });
-
-    return c.json({ error: "Upstream request failed", detail: error.message }, 502);
+    return { kind: "retryable", status: 502, error: error.message };
   }
 }
 
-function tryFallback(
-  c: Context<AppEnv>,
-  provider: Provider,
-  model: string,
-  targetPath: string,
-  body: any,
-  entryProtocol?: EntryProtocol,
-  routeTrace?: RouteTraceEntry[],
-): Promise<Response> | null {
-  if (!provider.fallback) return null;
-  const config = getConfig();
-  const fallbackProvider = config.providers.find((p) => p.id === provider.fallback && p.enabled);
-  if (!fallbackProvider) return null;
-
-  const modelConfig = fallbackProvider.models.find((m) => getModelId(m) === model);
-  if (!modelConfig) return null;
-
-  const fallbackPricing = getModelPricing(modelConfig);
-
-  let fallbackPath = targetPath;
-  if (fallbackProvider.type !== provider.type) {
-    if (fallbackProvider.type === "anthropic") fallbackPath = "/v1/messages";
-    else fallbackPath = "/chat/completions";
-  }
-
-  console.log(`[tokenparty] Falling back from ${provider.id} to ${fallbackProvider.id} for model ${model}`);
-  return forwardRequest(c, fallbackProvider, fallbackPath, body, entryProtocol, fallbackPricing, routeTrace);
+interface RawStreamPassthroughParams {
+  c: Context<AppEnv>;
+  targetUrl: string;
+  upstreamHeaders: Record<string, string>;
+  body: any;
+  requestId: string;
+  provider: Provider;
+  model: string;
+  token: { key: string };
+  startTime: number;
+  logFile: string;
+  apiKeyIndex: number;
+  pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number };
+  agent?: string;
+  customTags?: string;
+  routeTrace?: RouteTraceEntry[];
 }
 
-function rawStreamPassthrough(
-  c: Context<AppEnv>,
-  targetUrl: string,
-  upstreamHeaders: Record<string, string>,
-  body: any,
-  requestId: string,
-  provider: Provider,
-  model: string,
-  token: { key: string },
-  startTime: number,
-  logFile: string,
-  apiKeyIndex: number,
-  pricing?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cacheWritePrice?: number },
-  agent?: string,
-  customTags?: string,
-  routeTrace?: RouteTraceEntry[],
-): Promise<Response> {
+function rawStreamPassthrough(params: RawStreamPassthroughParams): Promise<AttemptResult> {
+  const {
+    targetUrl, upstreamHeaders, body, requestId, provider, model, token,
+    startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace,
+  } = params;
+
   const url = new URL(targetUrl);
   const reqFn = url.protocol === "https:" ? httpsRequest : httpRequest;
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const req = reqFn(url, { method: "POST", headers: { ...upstreamHeaders, "content-type": "application/json" } }, (res) => {
       const respHeaders: Record<string, string> = {};
       for (const [key, val] of Object.entries(res.headers)) {
         if (val) respHeaders[key] = Array.isArray(val) ? val.join(", ") : val;
       }
       const status = res.statusCode ?? 502;
+
+      // Check if retryable BEFORE piping - destroy stream and return retryable
+      if (isRetryableStatus(status)) {
+        res.destroy();
+        resolve({ kind: "retryable", status });
+        return;
+      }
 
       // Passthrough all upstream headers, skip hop-by-hop
       const passthroughHeaders = new Headers();
@@ -425,17 +464,18 @@ function rawStreamPassthrough(
           callback(null, chunk);
         },
         flush(callback) {
-          // Async parse for logging after stream ends
           asyncParseBufferForLog(rawChunks, res.headers["content-encoding"] as string | undefined, requestId, respHeaders, provider, model, token, startTime, logFile, apiKeyIndex, pricing, agent, customTags, routeTrace, status);
           callback();
         },
       });
 
       const stream = Readable.toWeb(res.pipe(passthrough) as unknown as Readable) as ReadableStream<Uint8Array>;
-      resolve(new Response(stream, { status, headers: passthroughHeaders }));
+      resolve({ kind: "done", response: new Response(stream, { status, headers: passthroughHeaders }) });
     });
 
-    req.on("error", reject);
+    req.on("error", (error) => {
+      resolve({ kind: "retryable", status: 502, error: error.message });
+    });
     req.write(JSON.stringify(body));
     req.end();
   });
