@@ -20,7 +20,7 @@ sleep 1
 
 # Start proxy
 echo "[proxy] Starting on http://localhost:3456 ..."
-pnpm --filter @zhouzhengchang/token-party dev > /tmp/tokenparty-proxy.log 2>&1 &
+pnpm --filter @tokenparty/tokenparty dev > /tmp/tokenparty-proxy.log 2>&1 &
 PROXY_PID=$!
 
 # Start dashboard

@@ -13,3 +13,4 @@ packages/proxy/data/
 .env.*
 .claude
 .gstack/
+.npmrc
