@@ -217,7 +217,7 @@ export default function Settings({ mode = "admin" }: { mode?: "admin" | "user" }
           {hasUpdate && latestVersion && (
             <div className="mt-3 p-3 bg-blue-50 rounded text-xs text-gray-700 space-y-1">
               <p className="font-medium">Update to v{latestVersion}:</p>
-              <code className="block bg-white px-2 py-1 rounded border text-xs font-mono">npm update -g @zhouzhengchang/token-party</code>
+              <code className="block bg-white px-2 py-1 rounded border text-xs font-mono">npm update -g @tokenparty/tokenparty</code>
             </div>
           )}
           <div className="mt-3 flex items-center gap-2">

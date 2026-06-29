@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @zhouzhengchang/token-party dev",
+    "dev": "pnpm --filter @tokenparty/tokenparty dev",
     "dev:dashboard": "pnpm --filter dashboard dev",
     "build": "pnpm -r build",
-    "build:publish": "pnpm --filter @zhouzhengchang/token-party build:publish",
+    "build:publish": "pnpm --filter @tokenparty/tokenparty build:publish",
     "prepublishOnly": "pnpm run build:publish"
   }
 }

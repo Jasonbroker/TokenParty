@@ -71,7 +71,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    let detail = `API error: ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.error) detail = body.detail ? `${body.error}: ${body.detail}` : body.error;
+    } catch {}
+    throw new Error(detail);
+  }
   return res.json();
 }
 

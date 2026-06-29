@@ -15,7 +15,7 @@ pnpm dev:dashboard    # 仅启动 dashboard dev server (port 3457)
 
 ## 架构
 
-- `packages/proxy` - Hono 反向代理服务 (TypeScript)，npm 包名 `@zhouzhengchang/token-party`
+- `packages/proxy` - Hono 反向代理服务 (TypeScript)，npm 包名 `@tokenparty/tokenparty`
 - `packages/dashboard` - React + Vite Dashboard
 
 ## 端点

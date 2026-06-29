@@ -84,13 +84,17 @@ export default function Providers() {
       data.apiKey = keys.length === 1 ? keys[0] : keys;
     }
     data.models = normalizeModels(data.models ?? []);
-    if (isNew) {
-      await api.createProvider(data);
-    } else {
-      await api.updateProvider(data.id!, data);
+    try {
+      if (isNew) {
+        await api.createProvider(data);
+      } else {
+        await api.updateProvider(data.id!, data);
+      }
+      setEditing(null);
+      load();
+    } catch (e: any) {
+      alert(`保存失败：${e.message}`);
     }
-    setEditing(null);
-    load();
   };
 
   const remove = async (id: string) => {

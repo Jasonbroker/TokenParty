@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@zhouzhengchang/token-party"><img src="https://img.shields.io/npm/v/@zhouzhengchang/token-party?color=cb3837&logo=npm" alt="npm" /></a>
+  <a href="https://www.npmjs.com/package/@tokenparty/tokenparty"><img src="https://img.shields.io/npm/v/@tokenparty/tokenparty?color=cb3837&logo=npm" alt="npm" /></a>
   <img src="https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Hono-4.6-E36002?logo=hono&logoColor=white" alt="Hono" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React" />
@@ -60,13 +60,13 @@
 ### npx (zero install)
 
 ```bash
-npx @zhouzhengchang/token-party
+npx @tokenparty/tokenparty
 ```
 
 ### npm global
 
 ```bash
-npm install -g @zhouzhengchang/token-party
+npm install -g @tokenparty/tokenparty
 tokenparty
 ```
 
@@ -84,7 +84,7 @@ docker compose up -d
 services:
   tokenparty:
     image: nfqlt/node22
-    entrypoint: sh -c "npm install -g @zhouzhengchang/token-party && tokenparty"
+    entrypoint: sh -c "npm install -g @tokenparty/tokenparty && tokenparty"
     ports:
       - "3456:3456"
     volumes:

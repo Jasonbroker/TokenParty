@@ -3,7 +3,7 @@ import { getConfig, updateConfig } from "../config.js";
 import { getDb, validateAdminToken, getSetting, setSetting } from "../store/db.js";
 import { readLog, getLogStats, cleanupLogs, clearAllLogs } from "../store/log-writer.js";
 import { nanoid } from "nanoid";
-import { getModelId } from "../types/config.js";
+import { getModelId, ProviderSchema } from "../types/config.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, "../../package.json"), "utf-8"));
 
 export const apiRoutes = new Hono();
+
+// Validate a provider object against the schema. Returns a human-readable
+// error string, or null when valid. Used to reject invalid configs (e.g. a
+// baseUrl missing its protocol) at save time rather than crashing on startup.
+function validateProvider(provider: any): string | null {
+  const result = ProviderSchema.safeParse(provider);
+  if (result.success) return null;
+  return result.error.issues
+    .map((i) => `${i.path.join(".")}: ${i.message}`)
+    .join("; ");
+}
 
 // --- Auth ---
 
@@ -44,7 +55,7 @@ apiRoutes.get("/version", (c) => c.json({ version: pkg.version }));
 
 apiRoutes.get("/version/check", async (c) => {
   try {
-    const res = await fetch("https://registry.npmjs.org/@zhouzhengchang/token-party/latest");
+    const res = await fetch("https://registry.npmjs.org/@tokenparty/tokenparty/latest");
     if (!res.ok) return c.json({ current: pkg.version, latest: null, hasUpdate: false });
     const data = await res.json() as { version: string };
     const latest = data.version;
@@ -89,6 +100,8 @@ apiRoutes.get("/providers", (c) => {
 apiRoutes.post("/providers", async (c) => {
   const body = await c.req.json();
   const newProvider = { id: body.id ?? nanoid(8), ...body, enabled: body.enabled ?? true };
+  const error = validateProvider(newProvider);
+  if (error) return c.json({ error: "Invalid provider config", detail: error }, 400);
   updateConfig((raw) => {
     (raw.providers as any[]).push(newProvider);
   });
@@ -118,6 +131,16 @@ apiRoutes.put("/providers/:id", async (c) => {
       delete body.apiKey;
     }
   }
+  // Validate the merged provider before persisting. Compute the merged shape
+  // from the current config (not raw yaml) since apiKey masking is resolved
+  // above into body.
+  const config = getConfig();
+  const existing = config.providers.find((p) => p.id === id);
+  if (!existing) return c.json({ error: "Provider not found" }, 404);
+  const merged = { ...existing, ...body };
+  const error = validateProvider(merged);
+  if (error) return c.json({ error: "Invalid provider config", detail: error }, 400);
+
   updateConfig((raw) => {
     const providers = raw.providers as any[];
     const idx = providers.findIndex((p) => p.id === id);
