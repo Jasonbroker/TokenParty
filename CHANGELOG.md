@@ -1,0 +1,90 @@
+# Changelog
+
+All notable changes to TokenParty are documented here.
+
+## [0.0.17] - 2026-06-29
+
+### Added
+- T favicon with transparent background and warm amber gradient
+- GitHub organization migration to `tokenpartyhub`
+
+### Changed
+- Updated all GitHub references from `Jasonbroker/TokenParty` to `tokenpartyhub/TokenParty`
+
+## [0.0.16] - 2026-06-29
+
+### Changed
+- Renamed npm package from `@zhouzhengchang/token-party` to `@tokenparty/tokenparty`
+- Updated all documentation references to new package name
+
+## [0.0.15] - 2026-06-29
+
+### Fixed
+- Dashboard request filters, date filter bug, validation, and URL state
+- Copy buttons on the route trace requester side
+
+## [0.0.14] - 2026-06-28
+
+### Added
+- Keep-alive connection pooling to prevent TIME_WAIT port exhaustion
+- Upstream model auto-discovery — fetches available models from provider APIs
+
+### Fixed
+- Record real upstream status and faithful body in stream logs
+- Return 404 for unknown GET routes to match upstream behavior
+
+## [0.0.13] - 2026-06-28
+
+### Added
+- Model-level priority with ordered fallback chain across providers
+- Model routing flow diagram visualization on Providers page
+- Route trace tracking with cURL copy support
+- 429 fallback support
+
+### Fixed
+- Deduplicate provider node in route trace display
+
+## [0.0.12] - 2026-06-27
+
+### Added
+- OpenClaw agent detection and dashboard adapter
+- AI agent detection for Claude Code
+
+## [0.0.11] - 2026-06-27
+
+### Added
+- Unified USD cost storage with display currency conversion
+- Per-request cost and cache token breakdown
+- Multi-currency pricing with cache read/write tracking
+- Cached input token tracking and pricing
+
+## [0.0.10] - 2026-06-26
+
+### Added
+- Drag-and-drop provider grouping UI
+- Custom provider groups for key access control
+- Usage quota per token with daily/monthly limits
+- Provider fallback on 5xx or connection failure
+- Dockerfile and docker-compose for container deployment
+- Cost estimation with per-model pricing config
+
+## [0.0.9] - 2026-06-25
+
+### Added
+- npm publish support with `~/.tokenparty` config
+- Load balancing across multiple API keys
+- Token `allowedProviders` grouping with `*` and `group:<type>`
+
+## [0.0.8] - 2026-06-25
+
+### Added
+- Initial dashboard with overview, requests, providers, users, settings pages
+- Cost analytics and request inspector
+- Scoped API keys with provider-level access control
+- OpenAI ↔ Anthropic bidirectional protocol translation
+- Full SSE streaming with protocol conversion
+
+## [0.0.1] - 2026-06-24
+
+### Added
+- Initial project scaffold
